@@ -6,46 +6,58 @@ let engine;
 let render;
 let runner;
 let audioCtx = null;
-let currentMode = '3-5'; // '3-5', '6-8', '9-10'
-let currentStage = 1;    // 6-8歳パズルモード用
-let currentShape = 'circle'; // 選択中の配置オブジェクト
+let currentMode = '3-5';      // '3-5', '6-8', '9-10'
+let currentStage = 1;         // 6-8歳パズルモード用
+let currentShape = 'circle';   // 選択中の配置オブジェクト
+let currentSubCategory = 'shape'; // 9-10歳のサブカテゴリ ('shape', 'gimmick', 'music')
 let isGameActive = false;
-let isGuideOn = true;    // 9-10歳ガイド表示フラグ
-let ballTimer = null;    // ボール自動落下タイマー
+let isGuideOn = true;         // 9-10歳ガイド表示
+let ballTimer = null;         // ボール自動落下タイマー
+let selectedNoteBlock = null; // ピアノ鍵盤で編集中の音符ブロック
 
-// 音色・色設定
+// 色パレット
 const COLORS = {
   bg: '#f7f3e9',
-  circle: '#ff6f61',      // パステルレッド
-  triangle: '#4ea8de',    // パステルブルー
-  square: '#ffd166',      // パステルイエロー
-  slope: '#a0c4ff',       // パステルブルー（坂道）
-  bouncer: '#ffadad',     // パステルピンク（ジャンプ台）
-  conveyor: '#caffbf',    // パステルグリーン（ベルトコンベア）
-  note: '#b39ddb',        // パステルパープル
-  gear: '#a8dadc',        // パステルシアン
+  circle: '#ff6f61',
+  triangle: '#4ea8de',
+  square: '#ffd166',
+  slope: '#a0c4ff',
+  bouncer: '#ffadad',
+  conveyor: '#caffbf',
+  note: '#b39ddb',
+  gear: '#a8dadc',
+  motorGear: '#ffa6c9',   // モーターギア：ピンクがかったシアン
+  loopGate: '#9bf6ff',    // ループゲート
+  drum: '#ffc6ff',        // ドラムブロック
   walls: '#e2dcd0',
   balls: ['#ffadad', '#ffd6a5', '#fdffb6', '#caffbf', '#9bf6ff', '#a0c4ff', '#bdb2ff', '#ffc6ff']
 };
 
-// 3-5歳モード等の衝突音高用（C3〜A5ペンタトニックスケール）
+// 3-5歳モード等の衝突音高（C3〜A5ペンタトニックスケール）
 const TONES = [
   130.81, 146.83, 164.81, 196.00, 220.00,
   261.63, 293.66, 329.63, 392.00, 440.00,
   523.25, 587.33, 659.25, 783.99, 880.00
 ];
 
-// 9-10歳おんぷブロック用（ドレミソラド）
+// 9-10歳おんぷブロック用（C4〜C5 1オクターブ全半音階）
 const NOTE_TONES = [
-  { name: 'ド', freq: 261.63, color: '#ff6f61' }, // C4
-  { name: 'レ', freq: 293.66, color: '#f77f00' }, // D4
-  { name: 'ミ', freq: 329.63, color: '#ffd166' }, // E4
-  { name: 'ソ', freq: 392.00, color: '#06d6a0' }, // G4
-  { name: 'ラ', freq: 440.00, color: '#118ab2' }, // A4
-  { name: 'ど', freq: 523.25, color: '#8338ec' }  // C5
+  { name: 'ド', freq: 261.63, color: '#ff6f61' },   // 0: C4
+  { name: 'ド#', freq: 277.18, color: '#e63946' },  // 1: C#4 (黒鍵)
+  { name: 'レ', freq: 293.66, color: '#f77f00' },   // 2: D4
+  { name: 'レ#', freq: 311.13, color: '#fcbf49' },  // 3: D#4 (黒鍵)
+  { name: 'ミ', freq: 329.63, color: '#ffd166' },   // 4: E4
+  { name: 'ファ', freq: 349.23, color: '#eae2b7' },  // 5: F4
+  { name: 'ファ#', freq: 369.99, color: '#8ac926' }, // 6: F#4 (黒鍵)
+  { name: 'ソ', freq: 392.00, color: '#06d6a0' },   // 7: G4
+  { name: 'ソ#', freq: 415.30, color: '#118ab2' },  // 8: G#4 (黒鍵)
+  { name: 'ラ', freq: 440.00, color: '#0077b6' },   // 9: A4
+  { name: 'ラ#', freq: 466.16, color: '#0096c7' },  // 10: A#4 (黒鍵)
+  { name: 'シ', freq: 493.88, color: '#8338ec' },   // 11: B4
+  { name: 'ど', freq: 523.25, color: '#b5179e' }    // 12: C5 (オクターブ上のド)
 ];
 
-// 6-8歳パズルモード用ステージデータ（画面比率で座標を定義）
+// 6-8歳パズルモード用ステージデータ
 let STAGE_DATA = [
   {
     start: { x: 0.2, y: 0.25 },
@@ -56,16 +68,16 @@ let STAGE_DATA = [
   },
   {
     start: { x: 0.5, y: 0.2 },
-    goal: { x: 0.5, y: 0.8 },
+    goal: { x: 0.5, y: 0.85 },
     obstacles: [
-      { x: 0.5, y: 0.45, w: 100, h: 100, type: 'triangle_obstacle' } // 中央の三角障害物
+      { x: 0.5, y: 0.45, w: 100, h: 100, type: 'triangle_obstacle' }
     ]
   },
   {
     start: { x: 0.15, y: 0.25 },
     goal: { x: 0.85, y: 0.25 },
     obstacles: [
-      { x: 0.5, y: 0.6, w: 30, h: 400, type: 'obstacle' } // 中央を遮る縦の壁
+      { x: 0.5, y: 0.6, w: 30, h: 420, type: 'obstacle' }
     ]
   }
 ];
@@ -74,15 +86,18 @@ let STAGE_DATA = [
 let draggedBody = null;
 let dragOffset = { x: 0, y: 0 };
 let lastTapTime = 0;
-let pressTimer = null; // 長押し削除用
-let blockRadius = 35;  // 基準ブロック半径
+let pressTimer = null;
+let blockRadius = 35;
 let goalSensor = null;
 let startSpawner = null;
+
+// 衝突フィルタカテゴリ
 const defaultCategory = 0x0001;
 const particleCategory = 0x0002;
+const gearCategory = 0x0004; // 歯車同士の物理衝突をオフにするためのカテゴリ
 
 // -------------------------------------------------------------
-// 1. サウンドシステム（Web Audio API）
+// 1. サウンドシステム（Web Audio API & ドラムシンセサイザー）
 // -------------------------------------------------------------
 function initAudio() {
   if (!audioCtx) {
@@ -93,19 +108,16 @@ function initAudio() {
   }
 }
 
-// 鉄琴風シンセサイズ音再生
+// 鉄琴音再生
 function playTone(freq, velocity = 0.5) {
   if (!audioCtx) return;
 
   const now = audioCtx.currentTime;
-  
-  // 基本音（三角波）
   const osc1 = audioCtx.createOscillator();
   const gain1 = audioCtx.createGain();
   osc1.type = 'triangle';
   osc1.frequency.value = freq;
   
-  // 金属的なアタック音（サイン波高周波倍音）
   const osc2 = audioCtx.createOscillator();
   const gain2 = audioCtx.createGain();
   osc2.type = 'sine';
@@ -134,8 +146,63 @@ function playTone(freq, velocity = 0.5) {
   osc2.stop(now + 0.1);
 }
 
+// 打楽器（ドラム）音再生
+function playDrum(type, velocity = 0.5) {
+  if (!audioCtx) return;
+  const now = audioCtx.currentTime;
+
+  if (type === 'bass') {
+    // 和太鼓風の「ドン」：サイン波の急激なピッチ低下
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'sine';
+    
+    osc.frequency.setValueAtTime(150, now);
+    osc.frequency.exponentialRampToValueAtTime(0.01, now + 0.12);
+    
+    gain.gain.setValueAtTime(0, now);
+    gain.gain.linearRampToValueAtTime(velocity * 0.7, now + 0.004);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.2);
+    
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    
+    osc.start(now);
+    osc.stop(now + 0.22);
+  } 
+  else if (type === 'snare') {
+    // シンバルの「シャン」：ホワイトノイズ＋ハイパスフィルタ
+    const bufferSize = audioCtx.sampleRate * 0.15;
+    const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+    const data = buffer.getChannelData(0);
+    
+    for (let i = 0; i < bufferSize; i++) {
+      data[i] = Math.random() * 2 - 1;
+    }
+    
+    const noise = audioCtx.createBufferSource();
+    noise.buffer = buffer;
+    
+    const filter = audioCtx.createBiquadFilter();
+    filter.type = 'highpass';
+    filter.frequency.value = 7500; // 7.5kHz以上の金属音を抽出
+    
+    const gain = audioCtx.createGain();
+    gain.gain.setValueAtTime(0, now);
+    gain.gain.linearRampToValueAtTime(velocity * 0.35, now + 0.005);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.15);
+    
+    noise.connect(filter);
+    filter.connect(gain);
+    gain.connect(audioCtx.destination);
+    
+    noise.start(now);
+    noise.stop(now + 0.18);
+  }
+}
+
 // -------------------------------------------------------------
-// 2. 物理エンジンセットアップ
+// 2. 物理エンジン初期化
 // -------------------------------------------------------------
 function initPhysics() {
   const container = document.getElementById('game-container');
@@ -167,13 +234,12 @@ function initPhysics() {
 
   window.addEventListener('resize', handleResize);
   setupCollisionHandler();
-  setupCustomRenderer(); // Canvas上のテキスト等描画用
+  setupCustomRenderer(); // Canvasカスタムテキスト描画
 
   Events.on(engine, 'beforeUpdate', updateLoop);
-  Events.on(engine, 'collisionActive', handleConveyorBeltPhysics);
+  Events.on(engine, 'collisionActive', handleActivePhysics);
 }
 
-// 壁の作成（左右のみ）
 function createWalls() {
   const container = document.getElementById('game-container');
   const width = container.clientWidth;
@@ -199,73 +265,110 @@ function createWalls() {
 }
 
 // -------------------------------------------------------------
-// 3. モード切替制御
+// 3. モード切替制御とテンポ変更
 // -------------------------------------------------------------
 function switchMode(mode) {
   currentMode = mode;
-  
-  // タイマー停止
-  if (ballTimer) {
-    clearInterval(ballTimer);
-    ballTimer = null;
-  }
+  closePiano();
 
-  // 物理世界のリセット（壁も含めて一掃し、壁を再作成）
+  // タイマーの停止
+  stopBallTimer();
+
+  // 物理世界クリアと壁再構築
   Composite.clear(engine.world, false);
   createWalls();
 
-  // モードUIの表示非表示切り替え
+  // モードUI表示切り替え
   document.querySelectorAll('.mode-ui').forEach(el => el.classList.add('hidden'));
   document.querySelectorAll('.age-tab').forEach(el => el.classList.remove('active'));
   document.querySelector(`.age-tab[data-mode="${mode}"]`).classList.add('active');
 
-  // 各モードのセットアップ
   if (mode === '3-5') {
     document.getElementById('tools-3-5').classList.remove('hidden');
     currentShape = 'circle';
     updateActiveToolButton();
-    
-    // ボール自動落下始動 (1.8秒ごと)
-    ballTimer = setInterval(dropBall, 1800);
+    startBallTimer(1800); // 1.8秒ごと
   } 
   else if (mode === '6-8') {
     document.getElementById('tools-6-8').classList.remove('hidden');
     document.getElementById('stage-selector').classList.remove('hidden');
     currentShape = 'slope';
     updateActiveToolButton();
-    
-    // ステージ読み込み
     loadStage(currentStage);
-    
-    // パズルを妨げないようにゆっくり自動落下 (4秒ごと)
-    ballTimer = setInterval(dropBall, 4000);
+    startBallTimer(4000); // パズル用に4秒ごと
   } 
   else if (mode === '9-10') {
     document.getElementById('tools-9-10').classList.remove('hidden');
     document.getElementById('physics-panel').classList.remove('hidden');
-    currentShape = 'note';
-    updateActiveToolButton();
     
-    // スライダーの値と同期
+    // サブカテゴリ初期化
+    switchSubCategory('shape');
     applyPhysicsSliders();
     
-    // 自動落下 (2秒ごと)
-    ballTimer = setInterval(dropBall, 2000);
+    // テンポに合わせて自動落下タイマー開始
+    const bpm = parseInt(document.getElementById('slider-bpm').value);
+    const interval = (60 / bpm) * 1000 * 2; // 2拍ごと
+    startBallTimer(interval);
   }
 
-  // モード切替のチャイム音
-  playTone(329.63, 0.4); // ミ
-  setTimeout(() => playTone(392.00, 0.4), 100); // ソ
+  playTone(329.63, 0.4); // 切替チャイム (ミ)
+  setTimeout(() => playTone(392.00, 0.4), 100); // (ソ)
+}
+
+function switchSubCategory(subCat) {
+  currentSubCategory = subCat;
+  
+  // サブタブボタンのアクティブ状態切り替え
+  document.querySelectorAll('.sub-tab').forEach(tab => {
+    tab.classList.remove('active');
+    if (tab.dataset.sub === subCat) tab.classList.add('active');
+  });
+
+  // サブツールパネルの表示切り替え
+  document.querySelectorAll('.sub-tool-panel').forEach(p => p.classList.add('hidden'));
+  document.getElementById(`sub-${subCat}`).classList.remove('hidden');
+
+  // カテゴリごとの最初のアクティブツールを選択
+  const activeBtn = document.querySelector(`#sub-${subCat} .tool-btn.active`);
+  if (activeBtn) {
+    currentShape = activeBtn.dataset.shape;
+  } else {
+    // なければ最初のボタンを選択状態にする
+    const firstBtn = document.querySelector(`#sub-${subCat} .tool-btn`);
+    if (firstBtn) {
+      document.querySelectorAll(`#sub-${subCat} .tool-btn`).forEach(b => b.classList.remove('active'));
+      firstBtn.classList.add('active');
+      currentShape = firstBtn.dataset.shape;
+    }
+  }
 }
 
 function updateActiveToolButton() {
   const currentToolsId = `tools-${currentMode}`;
-  document.querySelectorAll(`#${currentToolsId} .tool-btn`).forEach(btn => {
-    btn.classList.remove('active');
-    if (btn.dataset.shape === currentShape) {
-      btn.classList.add('active');
-    }
-  });
+  if (currentMode === '9-10') {
+    // 9-10歳はサブカテゴリ内のアクティブを更新
+    document.querySelectorAll('#tools-9-10 .tool-btn').forEach(btn => {
+      btn.classList.remove('active');
+      if (btn.dataset.shape === currentShape) btn.classList.add('active');
+    });
+  } else {
+    document.querySelectorAll(`#${currentToolsId} .tool-btn`).forEach(btn => {
+      btn.classList.remove('active');
+      if (btn.dataset.shape === currentShape) btn.classList.add('active');
+    });
+  }
+}
+
+function startBallTimer(ms) {
+  stopBallTimer();
+  ballTimer = setInterval(dropBall, ms);
+}
+
+function stopBallTimer() {
+  if (ballTimer) {
+    clearInterval(ballTimer);
+    ballTimer = null;
+  }
 }
 
 // -------------------------------------------------------------
@@ -273,8 +376,8 @@ function updateActiveToolButton() {
 // -------------------------------------------------------------
 function loadStage(stageNum) {
   currentStage = stageNum;
-  
-  // 壁以外のブロック・ゴールなどを一斉削除
+  closePiano();
+
   const bodies = Composite.allBodies(engine.world);
   bodies.forEach(body => {
     if (body.label !== 'wall') {
@@ -292,10 +395,9 @@ function loadStage(stageNum) {
   const container = document.getElementById('game-container');
   const width = container.clientWidth;
   const height = container.clientHeight;
-
   const stage = STAGE_DATA[stageNum - 1];
 
-  // 1. スタート発射台（ボールはここから生まれる）
+  // 🚀 スタート射出口
   const startX = width * stage.start.x;
   const startY = height * stage.start.y;
   startSpawner = Bodies.rectangle(startX, startY, 65, 15, {
@@ -305,12 +407,12 @@ function loadStage(stageNum) {
   });
   Composite.add(engine.world, startSpawner);
 
-  // 2. ゴール（星センサー）
+  // ⭐ ゴール星
   const goalX = width * stage.goal.x;
   const goalY = height * stage.goal.y;
   goalSensor = Bodies.circle(goalX, goalY, 25, {
     isStatic: true,
-    isSensor: true, // 衝突はするが跳ね返らない
+    isSensor: true,
     label: 'goalSensor',
     render: {
       fillStyle: 'transparent',
@@ -320,7 +422,7 @@ function loadStage(stageNum) {
   });
   Composite.add(engine.world, goalSensor);
 
-  // 3. 固定障害物の配置
+  // 固定障害物
   stage.obstacles.forEach(obs => {
     let obstacle;
     const obsX = width * obs.x;
@@ -330,7 +432,7 @@ function loadStage(stageNum) {
       obstacle = Bodies.polygon(obsX, obsY, 3, obs.w / 2, {
         isStatic: true,
         label: 'obstacle',
-        angle: Math.PI, // 下向きの三角にする
+        angle: Math.PI,
         render: { fillStyle: '#e2dcd0' }
       });
     } else {
@@ -344,11 +446,9 @@ function loadStage(stageNum) {
   });
 }
 
-// パズルクリア処理
 function handleStageClear() {
   if (document.getElementById('clear-modal').classList.contains('hidden')) {
     document.getElementById('clear-modal').classList.remove('hidden');
-    // クリアお祝い音（ファンファーレ風）
     playTone(523.25, 0.5); // ド
     setTimeout(() => playTone(659.25, 0.5), 120); // ミ
     setTimeout(() => playTone(783.99, 0.5), 240); // ソ
@@ -357,7 +457,7 @@ function handleStageClear() {
 }
 
 // -------------------------------------------------------------
-// 5. 9-10歳物理・作曲モード
+// 5. 9-10歳モードの物理連動・ポップアップピアノ
 // -------------------------------------------------------------
 function applyPhysicsSliders() {
   if (currentMode !== '9-10') return;
@@ -365,12 +465,10 @@ function applyPhysicsSliders() {
   const gravVal = parseFloat(document.getElementById('slider-gravity').value);
   const fricVal = parseFloat(document.getElementById('slider-friction').value);
 
-  // 重力の適用
   engine.gravity.y = gravVal;
   document.getElementById('val-gravity').innerText = gravVal.toFixed(1);
   document.getElementById('val-friction').innerText = fricVal.toFixed(2);
 
-  // 摩擦力の適用（世界の中のブロック全て）
   const bodies = Composite.allBodies(engine.world);
   bodies.forEach(body => {
     if (body.label === 'block') {
@@ -379,26 +477,30 @@ function applyPhysicsSliders() {
   });
 }
 
-// 十字はぐるま（水車）ギミックの作成
-function createGear(x, y) {
+// はぐるまギミックの生成
+function createGear(x, y, isMotor = false) {
   const width = 110;
   const height = 14;
 
   const partA = Bodies.rectangle(x, y, width, height, {
-    render: { fillStyle: COLORS.gear, chamfer: { radius: 4 } }
+    render: { fillStyle: isMotor ? COLORS.motorGear : COLORS.gear, chamfer: { radius: 4 } }
   });
   const partB = Bodies.rectangle(x, y, height, width, {
-    render: { fillStyle: COLORS.gear, chamfer: { radius: 4 } }
+    render: { fillStyle: isMotor ? COLORS.motorGear : COLORS.gear, chamfer: { radius: 4 } }
   });
 
   const gearBody = Body.create({
     parts: [partA, partB],
     label: 'block',
-    blockType: 'gear',
-    frictionAir: 0.015
+    blockType: isMotor ? 'motor-gear' : 'gear',
+    frictionAir: 0.015,
+    // 歯車同士の物理衝突をオフにする設定（カテゴリ4）
+    collisionFilter: {
+      category: gearCategory,
+      mask: defaultCategory // ボールや壁（カテゴリ1）とのみ衝突する
+    }
   });
 
-  // 中心をピン留めするConstraint
   const pin = Constraint.create({
     pointA: { x: x, y: y },
     bodyB: gearBody,
@@ -415,49 +517,44 @@ function createGear(x, y) {
   Composite.add(engine.world, [gearBody, pin]);
 }
 
-// 背景ガイド（きらきら星の最初の3音目安）の描画
-function drawMelodyGuide(ctx) {
+// ピアノ鍵盤を開く
+function openPiano(block, eventCoords) {
+  selectedNoteBlock = block;
+  const keyboard = document.getElementById('piano-keyboard');
+
+  // ポップアップ位置の設定（ブロックの直上中央）
   const container = document.getElementById('game-container');
   const width = container.clientWidth;
-  const height = container.clientHeight;
+  
+  let left = block.position.x - 160; // ピアノの幅320pxの中央
+  let top = block.position.y - 125;
 
-  const guidePoints = [
-    { x: width * 0.25, y: height * 0.35, note: 'ド' },
-    { x: width * 0.5, y: height * 0.45, note: 'ミ' },
-    { x: width * 0.75, y: height * 0.55, note: 'ソ' }
-  ];
+  // 画面左右のはみ出し防止
+  left = Math.max(10, Math.min(left, width - 330));
+  top = Math.max(70, top); // 上部年齢タブなどと重ね合わせを回避
 
-  ctx.strokeStyle = 'rgba(179, 157, 219, 0.4)';
-  ctx.lineWidth = 3;
-  ctx.setLineDash([8, 8]); // 点線
+  keyboard.style.left = `${left}px`;
+  keyboard.style.top = `${top}px`;
+  keyboard.classList.remove('hidden');
 
-  // ガイド線を引く
-  ctx.beginPath();
-  ctx.moveTo(width / 2, 40);
-  guidePoints.forEach(pt => {
-    ctx.lineTo(pt.x, pt.y);
-  });
-  ctx.stroke();
-  ctx.setLineDash([]); // リセット
-
-  // ガイドマークを描く
-  guidePoints.forEach(pt => {
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
-    ctx.strokeStyle = 'rgba(179, 157, 219, 0.6)';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(pt.x, pt.y, 28, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.fillStyle = '#7d7568';
-    ctx.font = "bold 12px 'M PLUS Rounded 1c', sans-serif";
-    ctx.fillText(`ここに [${pt.note}]`, pt.x, pt.y);
+  // アクティブキーのハイライト
+  const keys = keyboard.querySelectorAll('.piano-key');
+  keys.forEach(k => {
+    k.classList.remove('active-key');
+    if (parseInt(k.dataset.note) === block.toneIndex) {
+      k.classList.add('active-key');
+    }
   });
 }
 
+// ピアノ鍵盤を閉じる
+function closePiano() {
+  document.getElementById('piano-keyboard').classList.add('hidden');
+  selectedNoteBlock = null;
+}
+
 // -------------------------------------------------------------
-// 6. ボール落下・衝突・物理ループ
+// 6. ボール落下・衝突・物理判定ループ
 // -------------------------------------------------------------
 function dropBall() {
   if (!isGameActive) return;
@@ -468,11 +565,9 @@ function dropBall() {
   let startX, startY;
 
   if (currentMode === '6-8' && startSpawner) {
-    // パズルモード時は発射台のすぐ上から落とす
     startX = startSpawner.position.x;
     startY = startSpawner.position.y - 25;
   } else {
-    // それ以外のモードは画面上部からランダム
     startX = width / 2 + (Math.random() - 0.5) * (width * 0.4);
     startY = -20;
   }
@@ -485,7 +580,7 @@ function dropBall() {
     friction: 0.02,
     collisionFilter: {
       category: defaultCategory,
-      mask: defaultCategory
+      mask: defaultCategory | gearCategory // ボールは壁、通常ブロック、はぐるま全てと衝突する
     },
     render: { fillStyle: randomColor },
     label: 'ball'
@@ -494,137 +589,171 @@ function dropBall() {
   Composite.add(engine.world, ball);
 }
 
-// ベルトコンベア床の物理（乗っているボールを加速）
-function handleConveyorBeltPhysics(event) {
-  event.pairs.forEach(pair => {
-    const bodyA = pair.bodyA;
-    const bodyB = pair.bodyB;
-    const isBallA = bodyA.label === 'ball';
-    const isBallB = bodyB.label === 'ball';
+// 接触物体の継続的な物理判定（ベルトコンベア用）
+function handleConveyorBeltPhysics(pair) {
+  const bodyA = pair.bodyA;
+  const bodyB = pair.bodyB;
+  const isBallA = bodyA.label === 'ball';
+  const isBallB = bodyB.label === 'ball';
 
-    if (isBallA || isBallB) {
-      const ball = isBallA ? bodyA : bodyB;
-      const block = isBallA ? bodyB : bodyA;
+  if (isBallA || isBallB) {
+    const ball = isBallA ? bodyA : bodyB;
+    const block = isBallA ? bodyB : bodyA;
 
-      if (block.blockType === 'conveyor') {
-        // 右方向への搬送速度を上書き
-        Body.setVelocity(ball, { x: 3.5, y: ball.velocity.y });
+    if (block.blockType === 'conveyor') {
+      // 搬送対象をボールのみに限定し、速度を上書き
+      Body.setVelocity(ball, { x: 3.5, y: ball.velocity.y });
+    }
+  }
+}
+
+// ループゲートのテレポート判定とドラムの発音
+function handleCollisionStart(pair) {
+  const bodyA = pair.bodyA;
+  const bodyB = pair.bodyB;
+  const isBallA = bodyA.label === 'ball';
+  const isBallB = bodyB.label === 'ball';
+
+  if (isBallA || isBallB) {
+    const ball = isBallA ? bodyA : bodyB;
+    const target = isBallA ? bodyB : bodyA;
+
+    // ① 6-8歳パズル：ゴール到達判定
+    if (currentMode === '6-8' && target === goalSensor) {
+      handleStageClear();
+      Composite.remove(engine.world, ball);
+      return;
+    }
+
+    // ② 9-10歳：ループゲート（吸い込みテレポート）
+    if (target.blockType === 'loop-gate') {
+      // ワープ先座標の計算（スタート発射台付近）
+      const container = document.getElementById('game-container');
+      const startX = currentMode === '6-8' && startSpawner ? startSpawner.position.x : container.clientWidth / 2;
+      const startY = currentMode === '6-8' && startSpawner ? startSpawner.position.y - 25 : 30;
+
+      // ワープエフェクト星の発生
+      createSparkles(ball.position.x, ball.position.y, COLORS.loopGate);
+      
+      // テレポート実行
+      Body.setPosition(ball, { x: startX, y: startY });
+      Body.setVelocity(ball, { x: 0, y: 0 });
+
+      // ワープ先でも星を散らす
+      createSparkles(startX, startY, COLORS.loopGate);
+
+      // ワープ音（ピコーン）
+      playTone(880.00, 0.4);
+      setTimeout(() => playTone(1174.66, 0.4), 80);
+      return;
+    }
+
+    // ③ ブロック衝突発音
+    if (target.label === 'block') {
+      let freq;
+      let color = target.render.fillStyle;
+
+      if (target.blockType === 'note') {
+        const note = NOTE_TONES[target.toneIndex];
+        freq = note.freq;
+        color = note.color;
+        playTone(freq, Math.min(Vector.magnitude(ball.velocity) / 8, 1.0));
+      } 
+      else if (target.blockType === 'drum') {
+        // ドラムブロック：太鼓（bass）またはシンバル（snare）
+        playDrum(target.drumType, Math.min(Vector.magnitude(ball.velocity) / 6, 1.0));
+      }
+      else {
+        // 通常ブロック：X座標マッピング音
+        const containerWidth = document.getElementById('game-container').clientWidth;
+        const ratio = Math.min(Math.max(ball.position.x / containerWidth, 0), 1);
+        const toneIndex = Math.floor(ratio * TONES.length);
+        freq = TONES[toneIndex];
+        
+        // ジャンプ台（バウンサー）のインパルス適用
+        if (target.blockType === 'bouncer') {
+          Body.setVelocity(ball, { x: ball.velocity.x * 1.2, y: -9.5 });
+          freq = 659.25; // ミの音
+        }
+        playTone(freq, Math.min(Vector.magnitude(ball.velocity) / 8, 1.0));
+      }
+
+      // 衝突エフェクトの発生
+      const contact = pair.activeContacts ? pair.activeContacts[0] : null;
+      const contactPos = contact ? contact.vertex : ball.position;
+      createSparkles(contactPos.x, contactPos.y, color);
+
+      // 振動エフェクト
+      if (target.blockType !== 'gear' && target.blockType !== 'motor-gear') {
+        Body.applyForce(target, target.position, {
+          x: (Math.random() - 0.5) * 0.05,
+          y: 0.02
+        });
       }
     }
+  }
+}
+
+// アクティブ衝突イベント（コンベア処理など）
+function handleActivePhysics(event) {
+  event.pairs.forEach(pair => {
+    handleConveyorBeltPhysics(pair);
   });
 }
 
-// 衝突検知（音とエフェクト）
+// 衝突開始イベント
 function setupCollisionHandler() {
   Events.on(engine, 'collisionStart', (event) => {
     event.pairs.forEach((pair) => {
-      const bodyA = pair.bodyA;
-      const bodyB = pair.bodyB;
-
-      const isBallA = bodyA.label === 'ball';
-      const isBallB = bodyB.label === 'ball';
-
-      if (isBallA || isBallB) {
-        const ball = isBallA ? bodyA : bodyB;
-        const target = isBallA ? bodyB : bodyA;
-
-        // 6-8歳パズルモード：ゴール到達判定
-        if (currentMode === '6-8' && target === goalSensor) {
-          handleStageClear();
-          Composite.remove(engine.world, ball);
-          return;
-        }
-
-        // ブロック衝突音
-        if (target.label === 'block') {
-          let freq;
-          let color = target.render.fillStyle;
-
-          if (target.blockType === 'note') {
-            // おんぷブロックの場合：ブロックが持つ特定の音階
-            const note = NOTE_TONES[target.toneIndex];
-            freq = note.freq;
-            color = note.color;
-          } else {
-            // 通常ブロック：X座標によるマッピング音
-            const containerWidth = document.getElementById('game-container').clientWidth;
-            const ratio = Math.min(Math.max(ball.position.x / containerWidth, 0), 1);
-            const toneIndex = Math.floor(ratio * TONES.length);
-            freq = TONES[toneIndex];
-          }
-
-          // ジャンプ台（バウンサー）に当たったら、ボールに上方向のインパルスを与える
-          if (target.blockType === 'bouncer') {
-            Body.setVelocity(ball, { x: ball.velocity.x * 1.2, y: -9.5 });
-            freq = 659.25; // ジャンプ時は少し高めのミの音で固定
-          }
-
-          const speed = Vector.magnitude(ball.velocity);
-          const velocity = Math.min(speed / 8, 1.0);
-          playTone(freq, velocity);
-
-          // パーティクル発生
-          const contact = pair.activeContacts ? pair.activeContacts[0] : null;
-          const contactPos = contact ? contact.vertex : ball.position;
-          createSparkles(contactPos.x, contactPos.y, color);
-
-          // ブロック振動エフェクト
-          if (target.blockType !== 'gear') {
-            Body.applyForce(target, target.position, {
-              x: (Math.random() - 0.5) * 0.05,
-              y: 0.02
-            });
-          }
-        }
-      }
+      handleCollisionStart(pair);
     });
   });
 }
 
-// きらきら星パーティクルエフェクト
-function createSparkles(x, y, color) {
-  const sparkleCount = 6;
-  const sparkles = [];
-
-  for (let i = 0; i < sparkleCount; i++) {
-    const angle = (i / sparkleCount) * Math.PI * 2 + Math.random() * 0.5;
-    const speed = 2.5 + Math.random() * 2.5;
-    const radius = 3 + Math.random() * 3;
-
-    const sparkle = Bodies.circle(x, y, radius, {
-      collisionFilter: {
-        category: particleCategory,
-        mask: 0
-      },
-      render: { fillStyle: color, opacity: 1.0 },
-      label: 'particle'
-    });
-
-    Body.setVelocity(sparkle, {
-      x: Math.cos(angle) * speed,
-      y: Math.sin(angle) * speed - 2.5
-    });
-
-    sparkle.lifespan = 30;
-    sparkles.push(sparkle);
-  }
-
-  Composite.add(engine.world, sparkles);
-}
-
-// 毎フレームの更新ループ
+// 毎フレームのループ処理（画面外ボールの削除、はぐるま同期、モーター回転）
 function updateLoop() {
   const bodies = Composite.allBodies(engine.world);
   const container = document.getElementById('game-container');
   const height = container.clientHeight;
 
+  // はぐるま/モーターギアの一覧を抽出
+  const gears = bodies.filter(b => b.label === 'block' && (b.blockType === 'gear' || b.blockType === 'motor-gear'));
+
+  // 1. モーターギアの自転駆動
+  gears.forEach(g => {
+    if (g.blockType === 'motor-gear') {
+      Body.setAngularVelocity(g, 0.038); // 毎フレーム一定の角速度で強制回転
+    }
+  });
+
+  // 2. 歯車同士のプログラム同期連動
+  // 歯車同士の距離が 112px 未満（接触距離）であるペアに対して、角速度を逆方向に代入同期する
+  for (let i = 0; i < gears.length; i++) {
+    for (let j = i + 1; j < gears.length; j++) {
+      const gA = gears[i];
+      const gB = gears[j];
+      
+      const dist = Vector.magnitude(Vector.sub(gA.position, gB.position));
+      if (dist < 112) {
+        // 回転が速い方（主導権を持つギア）から遅い方へ伝達
+        const speedA = Math.abs(gA.angularVelocity);
+        const speedB = Math.abs(gB.angularVelocity);
+        
+        if (speedA > speedB && speedA > 0.002) {
+          Body.setAngularVelocity(gB, -gA.angularVelocity);
+        } else if (speedB > speedA && speedB > 0.002) {
+          Body.setAngularVelocity(gA, -gB.angularVelocity);
+        }
+      }
+    }
+  }
+
+  // 3. ボールの削除、パーティクルのフェードアウト
   bodies.forEach((body) => {
-    // 画面外ボールの削除
     if (body.label === 'ball' && body.position.y > height + 60) {
       Composite.remove(engine.world, body);
     }
 
-    // パーティクルのフェードアウト
     if (body.label === 'particle') {
       body.lifespan--;
       if (body.lifespan <= 0) {
@@ -661,49 +790,58 @@ function setupInteraction() {
   }
 
   function handleStart(e) {
-    if (e.target.closest('#control-panel') || e.target.closest('#age-selector') || e.target.closest('#stage-selector') || e.target.closest('#physics-panel')) return;
+    // UIパーツ上でのタッチは無効化
+    if (e.target.closest('#control-panel') || e.target.closest('#age-selector') || e.target.closest('#stage-selector') || e.target.closest('#physics-panel') || e.target.closest('#piano-keyboard')) return;
+    
     e.preventDefault();
+    closePiano(); // Canvas上をタッチしたらピアノを一旦閉じる
 
     const coords = getEventCoords(e);
     const bodies = Composite.allBodies(engine.world);
 
-    // タップ位置のオブジェクト検出
+    // ブロックボディをタップしたか検出
     const clickedBody = Matter.Query.point(bodies, coords).find(body => body.label === 'block');
 
-    // 長押し削除用タイマー起動 (500ms長押しで削除)
+    // ① 長押し（600ms）による削除処理
     if (clickedBody) {
       pressTimer = setTimeout(() => {
         Composite.remove(engine.world, clickedBody);
-        // はぐるまの場合は紐づくConstraintも削除
-        if (clickedBody.blockType === 'gear') {
+        
+        // ギアの場合はConstraint（ピン留め）も削除
+        if (clickedBody.blockType === 'gear' || clickedBody.blockType === 'motor-gear') {
           const constraints = Composite.allConstraints(engine.world);
           constraints.forEach(c => {
             if (c.bodyB === clickedBody) Composite.remove(engine.world, c);
           });
         }
-        playTone(150, 0.2); // 消滅音
+        playTone(150, 0.2); // 消去音
         draggedBody = null;
       }, 600);
     }
 
-    // ダブルタップ検知
+    // ② ダブルタップ検知（45度回転、またはドラム切替）
     const now = Date.now();
     if (clickedBody) {
       if (now - lastTapTime < 280) {
-        clearTimeout(pressTimer); // 長押しタイマーをキャンセル
+        clearTimeout(pressTimer); // 長押しキャンセルの同期
         
-        // ダブルタップアクション：ブロック回転、またはおんぷ切替
         if (clickedBody.blockType === 'slope' || clickedBody.blockType === 'conveyor') {
-          // 45度ずつ回転
+          // 45度回転
           Body.setAngle(clickedBody, clickedBody.angle + Math.PI / 4);
           playTone(440, 0.4);
-        } else if (clickedBody.blockType === 'note') {
-          // おんぷブロックの音階を切り替え
-          clickedBody.toneIndex = (clickedBody.toneIndex + 1) % NOTE_TONES.length;
-          clickedBody.render.fillStyle = NOTE_TONES[clickedBody.toneIndex].color;
-          playTone(NOTE_TONES[clickedBody.toneIndex].freq, 0.5);
-        } else {
-          // 回転しても意味がない物（丸等）は即削除
+        } 
+        else if (clickedBody.blockType === 'drum') {
+          // ドラムの種類を切り替え (bass ➔ snare)
+          clickedBody.drumType = clickedBody.drumType === 'bass' ? 'snare' : 'bass';
+          clickedBody.render.fillStyle = clickedBody.drumType === 'bass' ? '#ffc6ff' : '#caffbf';
+          playDrum(clickedBody.drumType, 0.5);
+        }
+        else if (clickedBody.blockType === 'note') {
+          // おんぷブロックの場合：ピアノキーボードをトグル表示
+          openPiano(clickedBody, coords);
+        }
+        else {
+          // 回転や切替がない形状は即削除
           Composite.remove(engine.world, clickedBody);
           playTone(150, 0.2);
         }
@@ -716,21 +854,24 @@ function setupInteraction() {
     }
 
     if (clickedBody) {
-      // ギアはドラッグ不可にする（Constraintで固定されているため）
-      if (clickedBody.blockType !== 'gear') {
+      // はぐるま/モーターギア/ループゲートはドラッグ固定にする
+      if (clickedBody.blockType !== 'gear' && clickedBody.blockType !== 'motor-gear' && clickedBody.blockType !== 'loop-gate') {
         draggedBody = clickedBody;
         dragOffset.x = coords.x - clickedBody.position.x;
         dragOffset.y = coords.y - clickedBody.position.y;
+      } else if (clickedBody.blockType === 'note') {
+        // おんぷブロックのシングルタップ：ピアノキーボードを表示
+        openPiano(clickedBody, coords);
       }
     } else {
-      // 空き地をタップした場合は新規配置
+      // 何もない場所をタップ：新規配置
       createBlock(coords.x, coords.y);
       lastTapTime = now;
     }
   }
 
   function handleMove(e) {
-    if (pressTimer) clearTimeout(pressTimer); // 動かしたら長押しキャンセル
+    if (pressTimer) clearTimeout(pressTimer);
     if (!draggedBody) return;
     e.preventDefault();
 
@@ -755,7 +896,7 @@ function setupInteraction() {
   window.addEventListener('touchend', handleEnd);
 }
 
-// 新規ブロック生成
+// 各種ギミックの物理定義と配置
 function createBlock(x, y) {
   let block;
   const options = {
@@ -764,7 +905,7 @@ function createBlock(x, y) {
     friction: parseFloat(document.getElementById('slider-friction').value) || 0.1
   };
 
-  // 1. 3〜5さい用おもちゃ
+  // 1. 基本図形
   if (currentShape === 'circle') {
     block = Bodies.circle(x, y, blockRadius, {
       ...options,
@@ -783,19 +924,19 @@ function createBlock(x, y) {
       render: { fillStyle: COLORS.square }
     });
   }
-  // 2. 6〜8さい用パズルギミック
+  // 2. 物理ギミック
   else if (currentShape === 'slope') {
     block = Bodies.rectangle(x, y, 120, 18, {
       ...options,
       blockType: 'slope',
-      angle: -Math.PI / 8, // 初期設定で少し傾ける
+      angle: -Math.PI / 8,
       render: { fillStyle: COLORS.slope, chamfer: { radius: 4 } }
     });
   } else if (currentShape === 'bouncer') {
     block = Bodies.circle(x, y, blockRadius - 5, {
       ...options,
       blockType: 'bouncer',
-      restitution: 1.6, // 超反発
+      restitution: 1.6,
       render: {
         fillStyle: COLORS.bouncer,
         strokeStyle: '#ffffff',
@@ -809,22 +950,43 @@ function createBlock(x, y) {
       render: { fillStyle: COLORS.conveyor, chamfer: { radius: 4 } }
     });
   }
-  // 3. 9〜10さい用ピタゴラ作曲
+  // 3. はぐるま類
+  else if (currentShape === 'gear') {
+    createGear(x, y, false);
+    playTone(392.00, 0.4);
+    return;
+  } else if (currentShape === 'motor-gear') {
+    createGear(x, y, true);
+    playTone(392.00, 0.4);
+    return;
+  } 
+  // 4. 音楽・ループギミック
   else if (currentShape === 'note') {
     block = Bodies.rectangle(x, y, 65, 36, {
       ...options,
       blockType: 'note',
-      toneIndex: 0, // 初期は「ド」
+      toneIndex: 0,
       chamfer: { radius: 8 },
       render: { fillStyle: NOTE_TONES[0].color }
     });
-  } else if (currentShape === 'gear') {
-    createGear(x, y);
-    playTone(392.00, 0.4);
-    return; // 複合体とConstraint追加のためここで早期リターン
+  } else if (currentShape === 'drum') {
+    block = Bodies.circle(x, y, blockRadius - 2, {
+      ...options,
+      blockType: 'drum',
+      drumType: 'bass', // 'bass'＝ドン, 'snare'＝シャン
+      render: { fillStyle: '#ffc6ff' }
+    });
+  } else if (currentShape === 'loop-gate') {
+    // ループゲートはボールとのみ衝突するセンサーボディ
+    block = Bodies.rectangle(x, y, 65, 45, {
+      ...options,
+      isSensor: true,
+      blockType: 'loop-gate',
+      render: { fillStyle: 'transparent' }
+    });
   }
 
-  playTone(392.00, 0.4); // 配置チャイム
+  playTone(392.00, 0.4); // 配置音
   Composite.add(engine.world, block);
 }
 
@@ -847,25 +1009,31 @@ function setupCustomRenderer() {
     }
 
     bodies.forEach(body => {
-      // ① おんぷブロックの文字（「ド」「レ」など）描画
+      // ① おんぷブロックの文字（「ド」「ミ#」など）
       if (body.label === 'block' && body.blockType === 'note') {
         const note = NOTE_TONES[body.toneIndex];
         ctx.fillStyle = "white";
         ctx.fillText(note.name, body.position.x, body.position.y);
       }
 
-      // ② ジャンプ台の星マーク描画
+      // ② ドラムブロックの文字（「ドン」「シャン」）
+      if (body.label === 'block' && body.blockType === 'drum') {
+        ctx.fillStyle = "#4a4a4a";
+        ctx.font = "bold 11px 'M PLUS Rounded 1c', sans-serif";
+        ctx.fillText(body.drumType === 'bass' ? "🥁 ドン" : "🔔 シャン", body.position.x, body.position.y);
+      }
+
+      // ③ ジャンプ台の★マーク
       if (body.label === 'block' && body.blockType === 'bouncer') {
         ctx.fillStyle = "white";
         ctx.font = "bold 18px 'M PLUS Rounded 1c', sans-serif";
         ctx.fillText("★", body.position.x, body.position.y);
       }
 
-      // ③ ベルトコンベアの矢印描画
+      // ④ ベルトコンベアの矢印
       if (body.label === 'block' && body.blockType === 'conveyor') {
         ctx.fillStyle = "#3b8a3b";
         ctx.font = "14px 'M PLUS Rounded 1c', sans-serif";
-        // 角度を適用して矢印を描く
         ctx.save();
         ctx.translate(body.position.x, body.position.y);
         ctx.rotate(body.angle);
@@ -873,22 +1041,46 @@ function setupCustomRenderer() {
         ctx.restore();
       }
 
-      // ④ 6-8歳：スタート発射口の装飾
+      // ⑤ ループゲート（ワープ）の渦巻きとガイド
+      if (body.label === 'block' && body.blockType === 'loop-gate') {
+        ctx.save();
+        ctx.translate(body.position.x, body.position.y);
+        ctx.rotate(Date.now() * -0.01);
+        ctx.fillStyle = "rgba(155, 246, 255, 0.4)";
+        ctx.beginPath();
+        ctx.arc(0, 0, 22, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#00b4d8";
+        ctx.font = "26px 'M PLUS Rounded 1c', sans-serif";
+        ctx.fillText("🌀", 0, 0);
+        ctx.restore();
+
+        ctx.fillStyle = "#00b4d8";
+        ctx.font = "bold 10px 'M PLUS Rounded 1c', sans-serif";
+        ctx.fillText("ワープ", body.position.x, body.position.y + 30);
+      }
+
+      // ⑥ はぐるま・モーターギアのピン留めの装飾
+      if (body.label === 'block' && (body.blockType === 'gear' || body.blockType === 'motor-gear')) {
+        ctx.fillStyle = "#7d7568";
+        ctx.font = "12px 'M PLUS Rounded 1c', sans-serif";
+        ctx.fillText(body.blockType === 'motor-gear' ? "⚡" : "・", body.position.x, body.position.y);
+      }
+
+      // ⑦ 6-8歳：スタート発射台
       if (body.label === 'startSpawn') {
         ctx.fillStyle = "#ffffff";
         ctx.font = "bold 10px 'M PLUS Rounded 1c', sans-serif";
-        ctx.fillText("★はっしゃ★", body.position.x, body.position.y);
+        ctx.fillText("はっしゃ", body.position.x, body.position.y);
         ctx.fillStyle = "#7d7568";
         ctx.font = "bold 12px 'M PLUS Rounded 1c', sans-serif";
         ctx.fillText("🚀 スタート", body.position.x, body.position.y - 20);
       }
 
-      // ⑤ 6-8歳：ゴール星センサーの装飾
+      // ⑧ 6-8歳：ゴール星
       if (body.label === 'goalSensor') {
-        // 回転させて星を描画
         ctx.save();
         ctx.translate(body.position.x, body.position.y);
-        // 現在のフレーム時間で少し回転させる
         ctx.rotate(Date.now() * 0.002);
         ctx.fillStyle = "#ff9f43";
         ctx.font = "34px 'M PLUS Rounded 1c', sans-serif";
@@ -934,16 +1126,45 @@ function setupUI() {
     });
   });
 
-  // 下部コントロールの形状選択ボタン
+  // 9-10歳用：サブカテゴリタブの切り替え
+  document.querySelectorAll('.sub-tab').forEach(tab => {
+    tab.addEventListener('click', (e) => {
+      const sub = e.currentTarget.dataset.sub;
+      switchSubCategory(sub);
+      playTone(523.25, 0.2); // ド
+    });
+  });
+
+  // 形状選択ツールボタン
   document.querySelectorAll('.tool-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
       const targetBtn = e.currentTarget;
-      // アクティブツール切り替え
+      // すべてのツールボタンからアクティブ状態を除去し、クリックしたものに付与
       targetBtn.parentElement.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
       targetBtn.classList.add('active');
       currentShape = targetBtn.dataset.shape;
 
       playTone(523.25, 0.3); // タップ音 (ド)
+    });
+  });
+
+  // ピアノ鍵盤の各キーのイベント登録
+  document.querySelectorAll('.piano-key').forEach(key => {
+    key.addEventListener('click', (e) => {
+      e.stopPropagation(); // バブリングを防ぐ
+      if (!selectedNoteBlock) return;
+
+      const noteIndex = parseInt(e.currentTarget.dataset.note);
+      
+      // おんぷブロックの音高・色の同期
+      selectedNoteBlock.toneIndex = noteIndex;
+      selectedNoteBlock.render.fillStyle = NOTE_TONES[noteIndex].color;
+
+      // プレビュー再生
+      playTone(NOTE_TONES[noteIndex].freq, 0.6);
+
+      // ピアノ鍵盤を閉じる
+      closePiano();
     });
   });
 
@@ -953,27 +1174,25 @@ function setupUI() {
     playTone(587.33, 0.3); // レ
   });
 
-  // 全部けすボタン
+  // 全部けす
   document.getElementById('btn-clear').addEventListener('click', () => {
+    closePiano();
     const bodies = Composite.allBodies(engine.world);
     bodies.forEach((body) => {
-      // 壁・スタート台・ゴール以外を一斉削除
       if (body.label === 'block' || body.label === 'ball' || body.label === 'particle') {
         Composite.remove(engine.world, body);
       }
     });
+    
     // ギアのConstraintも一掃
     const constraints = Composite.allConstraints(engine.world);
     constraints.forEach(c => {
       if (c.label !== 'wall') Composite.remove(engine.world, c);
     });
 
-    // 消去音（悲しいアルペジオ）
-    if (audioCtx) {
-      playTone(440, 0.3);
-      setTimeout(() => playTone(330, 0.3), 100);
-      setTimeout(() => playTone(220, 0.3), 200);
-    }
+    playTone(440, 0.3);
+    setTimeout(() => playTone(330, 0.3), 100);
+    setTimeout(() => playTone(220, 0.3), 200);
   });
 
   // 6-8歳：ステージ選択
@@ -985,19 +1204,29 @@ function setupUI() {
     });
   });
 
-  // 6-8歳：クリア画面の「つぎのステージへ」
+  // 6-8歳：クリア画面「つぎのステージへ」
   document.getElementById('btn-next-stage').addEventListener('click', () => {
     document.getElementById('clear-modal').classList.add('hidden');
     let nextStage = currentStage + 1;
-    if (nextStage > 3) nextStage = 1; // ループ
+    if (nextStage > 3) nextStage = 1;
     loadStage(nextStage);
   });
 
   // 9-10歳：物理調整スライダー
   document.getElementById('slider-gravity').addEventListener('input', applyPhysicsSliders);
   document.getElementById('slider-friction').addEventListener('input', applyPhysicsSliders);
+  
+  // 9-10歳：BPMスライダーと自動落下の同期
+  const sliderBpm = document.getElementById('slider-bpm');
+  sliderBpm.addEventListener('input', () => {
+    const bpm = parseInt(sliderBpm.value);
+    document.getElementById('val-bpm').innerText = bpm;
+    // テンポに合わせて落下間隔をミリ秒へマッピング (2拍ごと)
+    const interval = (60 / bpm) * 1000 * 2;
+    startBallTimer(interval);
+  });
 
-  // 9-10歳：ガイド表示切り替え
+  // 9-10歳：ガイド切り替え
   const btnToggleGuide = document.getElementById('btn-toggle-guide');
   btnToggleGuide.addEventListener('click', () => {
     isGuideOn = !isGuideOn;
@@ -1020,25 +1249,21 @@ function handleResize() {
   render.options.width = width;
   render.options.height = height;
 
-  // 壁の再配置
   const wallThickness = 60;
   const bodies = Composite.allBodies(engine.world);
   let wallIndex = 0;
   bodies.forEach((body) => {
     if (body.label === 'wall') {
       if (wallIndex === 0) {
-        // 左
         Body.setPosition(body, { x: -wallThickness / 2, y: height / 2 });
         wallIndex++;
       } else if (wallIndex === 1) {
-        // 右
         Body.setPosition(body, { x: width + wallThickness / 2, y: height / 2 });
         wallIndex++;
       }
     }
   });
 
-  // パズルモード時はスタート・ゴールを再配置
   if (currentMode === '6-8' && startSpawner && goalSensor) {
     loadStage(currentStage);
   }

@@ -33,6 +33,29 @@
     </div>
   </div>
 
+  <!-- 音階選択ミニピアノ鍵盤ポップアップUI -->
+  <div id="piano-keyboard" class="hidden">
+    <div class="keys-container">
+      <!-- 白鍵 (8鍵) -->
+      <button class="piano-key white" data-note="0"><span>ド</span></button>
+      <button class="piano-key white" data-note="2"><span>レ</span></button>
+      <button class="piano-key white" data-note="4"><span>ミ</span></button>
+      <button class="piano-key white" data-note="5"><span>ファ</span></button>
+      <button class="piano-key white" data-note="7"><span>ソ</span></button>
+      <button class="piano-key white" data-note="9"><span>ラ</span></button>
+      <button class="piano-key white" data-note="11"><span>シ</span></button>
+      <button class="piano-key white" data-note="12"><span>ど</span></button>
+      
+      <!-- 黒鍵 (5鍵) - 白鍵の隙間に絶対配置 -->
+      <button class="piano-key black" data-note="1" style="left: 28px;"><span>ド#</span></button>
+      <button class="piano-key black" data-note="3" style="left: 68px;"><span>レ#</span></button>
+      <button class="piano-key black" data-note="6" style="left: 148px;"><span>ファ#</span></button>
+      <button class="piano-key black" data-note="8" style="left: 188px;"><span>ソ#</span></button>
+      <button class="piano-key black" data-note="10" style="left: 228px;"><span>ラ#</span></button>
+    </div>
+    <div class="piano-arrow"></div>
+  </div>
+
   <!-- メインゲーム画面 -->
   <div id="game-container">
     <!-- 年齢選択ナビゲーションバー（画面上部に固定） -->
@@ -49,22 +72,28 @@
       <button class="stage-btn" data-stage="3">ステージ 3</button>
     </div>
 
-    <!-- 9〜10歳モード用物理調整パネル（画面上部右側） -->
+    <!-- 9〜10歳モード用物理・音楽調整パネル（画面上部右側） -->
     <div id="physics-panel" class="mode-ui hidden">
-      <div class="slider-group">
-        <label for="slider-gravity">じゅうりょく (重力): <span id="val-gravity">0.6</span></label>
-        <input type="range" id="slider-gravity" min="0.0" max="1.5" step="0.1" value="0.6">
-      </div>
-      <div class="slider-group">
-        <label for="slider-friction">まさつ (摩擦): <span id="val-friction">0.1</span></label>
-        <input type="range" id="slider-friction" min="0.0" max="0.5" step="0.05" value="0.1">
+      <div class="slider-row">
+        <div class="slider-group">
+          <label for="slider-gravity">じゅうりょく: <span id="val-gravity">0.6</span></label>
+          <input type="range" id="slider-gravity" min="0.0" max="1.5" step="0.1" value="0.6">
+        </div>
+        <div class="slider-group">
+          <label for="slider-friction">まさつ: <span id="val-friction">0.1</span></label>
+          <input type="range" id="slider-friction" min="0.0" max="0.5" step="0.05" value="0.1">
+        </div>
+        <div class="slider-group">
+          <label for="slider-bpm">テンポ (BPM): <span id="val-bpm">120</span></label>
+          <input type="range" id="slider-bpm" min="40" max="200" step="10" value="120">
+        </div>
       </div>
       <button id="btn-toggle-guide" class="toggle-btn active">ガイド: ON</button>
     </div>
 
     <!-- 物理エンジン描画用のCanvasがここに生成されます -->
 
-    <!-- 下部コントロールパネル (3-5歳向けに大きくタップしやすいボタン) -->
+    <!-- 下部コントロールパネル -->
     <div id="control-panel">
       <!-- 3〜5歳用ツール群 -->
       <div id="tools-3-5" class="tool-group mode-ui">
@@ -94,20 +123,38 @@
         </button>
         <button class="tool-btn" data-shape="conveyor">
           <div class="shape-preview conveyor"></div>
-          <span>ベルトコンベア</span>
+          <span>ベルト</span>
         </button>
       </div>
 
-      <!-- 9〜10歳用ツール群 -->
+      <!-- 9〜10歳用全アイテム解放・サブカテゴリ切り替えパネル -->
       <div id="tools-9-10" class="tool-group mode-ui hidden">
-        <button class="tool-btn active" data-shape="note">
-          <div class="shape-preview note-icon">🎵</div>
-          <span>おんぷ</span>
-        </button>
-        <button class="tool-btn" data-shape="gear">
-          <div class="shape-preview gear-icon">⚙️</div>
-          <span>はぐるま</span>
-        </button>
+        <!-- カテゴリ切り替えタブ -->
+        <div class="sub-tabs">
+          <button class="sub-tab active" data-sub="shape">🧱かたち</button>
+          <button class="sub-tab" data-sub="gimmick">⚙️ぎみっく</button>
+          <button class="sub-tab" data-sub="music">🎵おんがく</button>
+        </div>
+        <!-- カテゴリ1: かたち -->
+        <div id="sub-shape" class="sub-tool-panel">
+          <button class="tool-btn active" data-shape="circle"><div class="shape-preview circle"></div><span>まる</span></button>
+          <button class="tool-btn" data-shape="triangle"><div class="shape-preview triangle"></div><span>さんかく</span></button>
+          <button class="tool-btn" data-shape="square"><div class="shape-preview square"></div><span>しかく</span></button>
+          <button class="tool-btn" data-shape="slope"><div class="shape-preview slope"></div><span>さかみち</span></button>
+        </div>
+        <!-- カテゴリ2: ぎみっく -->
+        <div id="sub-gimmick" class="sub-tool-panel hidden">
+          <button class="tool-btn" data-shape="bouncer"><div class="shape-preview bouncer"></div><span>ジャンプ</span></button>
+          <button class="tool-btn" data-shape="conveyor"><div class="shape-preview conveyor"></div><span>ベルト</span></button>
+          <button class="tool-btn" data-shape="gear"><div class="shape-preview gear-icon">⚙️</div><span>はぐるま</span></button>
+          <button class="tool-btn" data-shape="motor-gear"><div class="shape-preview motor-gear-icon">🌀</div><span>モーター</span></button>
+          <button class="tool-btn" data-shape="loop-gate"><div class="shape-preview loop-icon">🌀</div><span>ループ</span></button>
+        </div>
+        <!-- カテゴリ3: おんがく -->
+        <div id="sub-music" class="sub-tool-panel hidden">
+          <button class="tool-btn" data-shape="note"><div class="shape-preview note-icon">🎵</div><span>おんぷ</span></button>
+          <button class="tool-btn" data-shape="drum"><div class="shape-preview drum-icon">🥁</div><span>ドラム</span></button>
+        </div>
       </div>
 
       <!-- 共通アクション群 -->
