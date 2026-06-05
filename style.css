@@ -185,7 +185,6 @@ canvas {
   transform: scale(0.95);
 }
 
-/* 年齢ごとのアクティブ状態テーマカラー */
 .age-tab[data-mode="3-5"].active {
   background-color: #6bcbca; /* パステルグリーン */
   border-color: #55b7b6;
@@ -205,13 +204,13 @@ canvas {
 }
 
 /* -------------------------------------------------------------
- * 画面上部2段目：ステージ選択および物理調整パネル
+ * 画面上部2段目：ステージ選択および物理・音楽調整パネル
  * ------------------------------------------------------------- */
 
 /* 6〜8歳：ステージセレクター */
 #stage-selector {
   position: absolute;
-  top: calc(55px + env(safe-area-inset-top));
+  top: calc(58px + env(safe-area-inset-top));
   left: 50%;
   transform: translateX(-50%);
   z-index: 10;
@@ -243,27 +242,34 @@ canvas {
 /* 9〜10歳：物理調整パネル */
 #physics-panel {
   position: absolute;
-  top: calc(55px + env(safe-area-inset-top));
+  top: calc(58px + env(safe-area-inset-top));
   left: 10px;
   right: 10px;
   z-index: 10;
   background: rgba(255, 255, 255, 0.9);
   border-radius: 20px;
   border: 2px solid #e2dcd0;
-  padding: 10px 15px;
+  padding: 8px 12px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
   box-shadow: 0 4px 10px rgba(0,0,0,0.03);
 }
 
+.slider-row {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+}
+
 .slider-group {
+  flex: 1;
   display: flex;
   flex-direction: column;
-  font-size: 0.75rem;
+  font-size: 0.65rem;
   font-weight: 700;
   color: #7d7568;
-  gap: 2px;
+  gap: 1px;
 }
 
 .slider-group label {
@@ -272,13 +278,13 @@ canvas {
 }
 
 .slider-group label span {
-  color: #b39ddb;
+  color: #9575cd;
 }
 
 .slider-group input[type="range"] {
   width: 100%;
-  height: 8px;
-  border-radius: 4px;
+  height: 6px;
+  border-radius: 3px;
   background: #e2dcd0;
   outline: none;
   -webkit-appearance: none;
@@ -286,22 +292,22 @@ canvas {
 
 .slider-group input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
-  width: 20px;
-  height: 20px;
+  width: 16px;
+  height: 16px;
   border-radius: 50%;
   background: #b39ddb;
   cursor: pointer;
   border: 2px solid white;
-  box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
 }
 
 .toggle-btn {
-  padding: 6px 12px;
-  border-radius: 12px;
+  padding: 4px 8px;
+  border-radius: 10px;
   background-color: white;
   border: 2px solid #e2dcd0;
   color: #7d7568;
-  font-size: 0.75rem;
+  font-size: 0.7rem;
   font-weight: 700;
   width: 100%;
 }
@@ -313,29 +319,157 @@ canvas {
 }
 
 /* -------------------------------------------------------------
- * 画面下部：コントロールパネル
+ * ミニピアノ鍵盤ポップアップUI (C4〜C5)
+ * ------------------------------------------------------------- */
+#piano-keyboard {
+  position: absolute;
+  z-index: 50;
+  filter: drop-shadow(0 6px 15px rgba(0, 0, 0, 0.1));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.keys-container {
+  position: relative;
+  width: 320px;
+  height: 110px;
+  background-color: #4a4a4a;
+  padding: 3px;
+  border-radius: 12px;
+  display: flex;
+  overflow: hidden;
+}
+
+.piano-key {
+  font-family: 'M PLUS Rounded 1c', sans-serif;
+  font-weight: 700;
+  border: none;
+  outline: none;
+  cursor: pointer;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  transition: background-color 0.1s ease, transform 0.1s ease;
+}
+
+.piano-key:active {
+  transform: scaleY(0.96);
+}
+
+/* 白鍵 (width: 39.25px - 間隔を含めて320pxに収まるように調整) */
+.piano-key.white {
+  width: 39px;
+  height: 104px;
+  background-color: #ffffff;
+  border-radius: 6px;
+  margin-right: 1px;
+  color: #7d7568;
+  font-size: 0.75rem;
+  padding-bottom: 8px;
+  box-shadow: inset 0 -4px 0 #e2dcd0, 0 2px 4px rgba(0,0,0,0.05);
+}
+
+.piano-key.white:last-child {
+  margin-right: 0;
+}
+
+.piano-key.white:active {
+  background-color: #ececec;
+  box-shadow: inset 0 -2px 0 #cbd2d6;
+}
+
+/* 黒鍵 (白鍵の上に重ねる絶対配置) */
+.piano-key.black {
+  position: absolute;
+  width: 25px;
+  height: 65px;
+  background-color: #333333;
+  color: #ffffff;
+  font-size: 0.55rem;
+  border-radius: 0 0 4px 4px;
+  z-index: 10;
+  padding-bottom: 6px;
+  box-shadow: inset 0 -3px 0 #111111, 0 2px 3px rgba(0,0,0,0.2);
+}
+
+.piano-key.black:active {
+  background-color: #1a1a1a;
+  box-shadow: inset 0 -1px 0 #000000;
+}
+
+/* ポップアップの吹き出しの矢印 */
+.piano-arrow {
+  width: 0;
+  height: 0;
+  border-left: 10px solid transparent;
+  border-right: 10px solid transparent;
+  border-top: 10px solid #4a4a4a;
+  margin-top: -1px;
+}
+
+/* -------------------------------------------------------------
+ * 画面下部：コントロールパネル & サブカテゴリ
  * ------------------------------------------------------------- */
 #control-panel {
   position: absolute;
   bottom: 0;
   left: 0;
   width: 100%;
-  z-index: 10;
-  background: rgba(255, 255, 255, 0.85);
+  z-index: 15;
+  background: rgba(255, 255, 255, 0.9);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   border-top: 3px solid #e2dcd0;
-  padding: 15px 15px calc(15px + env(safe-area-inset-bottom));
+  padding: 12px 12px calc(12px + env(safe-area-inset-bottom));
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  gap: 15px;
+  align-items: flex-end;
+  gap: 12px;
 }
 
-/* ツールグループとアクショングループ */
-.tool-group, .action-group {
+.tool-group {
+  flex: 1;
   display: flex;
+  gap: 6px;
+}
+
+/* 9-10歳全アイテム解放用：タブコンテナ */
+#tools-9-10 {
+  display: flex;
+  flex-direction: column;
   gap: 8px;
+}
+
+.sub-tabs {
+  display: flex;
+  gap: 6px;
+  width: 100%;
+}
+
+.sub-tab {
+  flex: 1;
+  padding: 5px 8px;
+  border-radius: 10px;
+  border: 2px solid #e2dcd0;
+  background-color: white;
+  color: #7d7568;
+  font-size: 0.65rem;
+  font-weight: 700;
+}
+
+.sub-tab.active {
+  background-color: #b39ddb;
+  border-color: #b39ddb;
+  color: white;
+}
+
+/* カテゴリ別パネル */
+.sub-tool-panel {
+  display: flex;
+  gap: 6px;
+  width: 100%;
 }
 
 /* ボタン共通設定 */
@@ -356,19 +490,18 @@ button:active {
   transform: scale(0.9);
 }
 
-/* 形状選択ボタン */
+/* 配置アイテムボタン */
 .tool-btn {
-  width: 68px;
-  height: 68px;
-  border-radius: 16px;
+  width: 58px;
+  height: 58px;
+  border-radius: 14px;
   background-color: white;
   border: 3px solid #e2dcd0;
   color: #7d7568;
-  font-size: 0.65rem;
-  gap: 4px;
+  font-size: 0.6rem;
+  gap: 2px;
 }
 
-/* 年齢別アクティブスタイル */
 #tools-3-5 .tool-btn.active {
   border-color: #6bcbca;
   background-color: #eef9f9;
@@ -387,74 +520,91 @@ button:active {
 
 /* 形状プレビューアイコン */
 .shape-preview {
-  width: 24px;
-  height: 24px;
+  width: 20px;
+  height: 20px;
   transition: transform 0.2s ease;
 }
 
 .circle {
   border-radius: 50%;
-  background-color: #ff6f61; /* パステルレッド */
+  background-color: #ff6f61;
 }
 
 .triangle {
   width: 0;
   height: 0;
-  border-left: 12px solid transparent;
-  border-right: 12px solid transparent;
-  border-bottom: 22px solid #4ea8de; /* パステルブルー */
+  border-left: 10px solid transparent;
+  border-right: 10px solid transparent;
+  border-bottom: 18px solid #4ea8de;
   background-color: transparent;
 }
 
 .square {
-  background-color: #ffd166; /* パステルイエロー */
-  border-radius: 5px;
+  background-color: #ffd166;
+  border-radius: 4px;
 }
 
-/* 6-8歳 ギミックアイコン */
 .slope {
-  width: 24px;
-  height: 8px;
+  width: 20px;
+  height: 6px;
   background-color: #a0c4ff;
-  border-radius: 2px;
-  transform: rotate(-25deg) translateY(4px);
+  border-radius: 1px;
+  transform: rotate(-25deg) translateY(3px);
 }
 
 .bouncer {
-  width: 22px;
-  height: 22px;
+  width: 18px;
+  height: 18px;
   background-color: #ffadad;
   border-radius: 50%;
-  border: 3px dashed white;
+  border: 2px dashed white;
   box-shadow: 0 0 0 2px #ffadad;
 }
 
 .conveyor {
-  width: 26px;
-  height: 8px;
+  width: 22px;
+  height: 6px;
   background-color: #caffbf;
-  border-radius: 2px;
+  border-radius: 1px;
   position: relative;
 }
 .conveyor::after {
   content: "➔";
-  font-size: 8px;
+  font-size: 6px;
   color: #3b8a3b;
   position: absolute;
-  top: -4px;
-  left: 4px;
+  top: -3px;
+  left: 2px;
 }
 
-/* 9-10歳 ギミックアイコン */
+/* 音楽・回転アイコン */
 .note-icon {
-  font-size: 1.4rem;
+  font-size: 1.2rem;
   color: #b39ddb;
   line-height: 1;
 }
 
 .gear-icon {
-  font-size: 1.4rem;
+  font-size: 1.2rem;
   color: #7d7568;
+  line-height: 1;
+}
+
+.motor-gear-icon {
+  font-size: 1.2rem;
+  color: #ffa6c9;
+  line-height: 1;
+}
+
+.loop-icon {
+  font-size: 1.2rem;
+  color: #9bf6ff;
+  line-height: 1;
+}
+
+.drum-icon {
+  font-size: 1.2rem;
+  color: #ffc6ff;
   line-height: 1;
 }
 
@@ -462,16 +612,16 @@ button:active {
   transform: scale(1.1);
 }
 
-/* アクションボタン (リセットやボール追加) */
+/* 右側アクションボタン */
 .action-btn {
-  width: 70px;
-  height: 68px;
-  border-radius: 16px;
+  width: 60px;
+  height: 58px;
+  border-radius: 14px;
   background-color: white;
   border: 3px solid #e2dcd0;
   color: #7d7568;
-  font-size: 0.65rem;
-  gap: 4px;
+  font-size: 0.6rem;
+  gap: 2px;
 }
 
 .action-btn.danger {
@@ -479,69 +629,61 @@ button:active {
 }
 
 .ball-icon {
-  font-size: 1.3rem;
+  font-size: 1.1rem;
   color: #6bcbca;
   line-height: 1;
 }
 
 .trash-icon {
-  font-size: 1.3rem;
+  font-size: 1.1rem;
   line-height: 1;
 }
 
-/* スマホ横向きや短尺端末用のレイアウト最適化 */
-@media (max-height: 500px) {
+/* スマホ横向き等の表示最適化 */
+@media (max-height: 550px) {
   #age-selector {
-    padding: 4px;
+    padding: 3px;
   }
   .age-tab {
-    padding: 3px;
-    font-size: 0.65rem;
+    padding: 2px;
+    font-size: 0.6rem;
   }
   .age-tab small {
     display: none;
   }
   #stage-selector {
-    top: 40px;
-    padding: 3px 8px;
+    top: 38px;
+    padding: 2px 6px;
   }
   #physics-panel {
-    top: 40px;
-    padding: 6px 12px;
-    flex-direction: row;
-    gap: 15px;
+    top: 38px;
+    padding: 4px 8px;
   }
   .slider-group {
-    flex: 1;
+    font-size: 0.55rem;
   }
-  .toggle-btn {
-    width: auto;
+  #piano-keyboard {
+    transform: scale(0.8); /* ピアノをスマホの横画面で少し小さくする */
   }
   #control-panel {
-    padding: 6px 15px calc(6px + env(safe-area-inset-bottom));
+    padding: 4px 10px calc(4px + env(safe-area-inset-bottom));
   }
   .tool-btn, .action-btn {
-    width: 55px;
-    height: 55px;
-    font-size: 0.65rem;
-    gap: 2px;
+    width: 46px;
+    height: 46px;
+    font-size: 0.5rem;
+  }
+  .sub-tab {
+    padding: 3px;
+    font-size: 0.55rem;
   }
   .shape-preview {
-    width: 18px;
-    height: 18px;
+    width: 14px;
+    height: 14px;
   }
   .triangle {
-    border-left: 9px solid transparent;
-    border-right: 9px solid transparent;
-    border-bottom: 16px solid #4ea8de;
-  }
-}
-
-/* タブレットなどの広い横画面用のレイアウト微調整 */
-@media (min-width: 600px) {
-  #physics-panel {
-    left: auto;
-    right: 20px;
-    width: 250px;
+    border-left: 7px solid transparent;
+    border-right: 7px solid transparent;
+    border-bottom: 12px solid #4ea8de;
   }
 }
