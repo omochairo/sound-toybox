@@ -24,35 +24,101 @@
     </div>
   </div>
 
+  <!-- パズルクリア画面モーダル (6〜8歳向け) -->
+  <div id="clear-modal" class="overlay hidden">
+    <div class="clear-card">
+      <h2 class="bounce-animation">🌟 クリア！ 🌟</h2>
+      <p class="clear-message">じょうずに ボールを はこべたね！</p>
+      <button id="btn-next-stage">つぎの ステージへ ▶</button>
+    </div>
+  </div>
+
   <!-- メインゲーム画面 -->
   <div id="game-container">
+    <!-- 年齢選択ナビゲーションバー（画面上部に固定） -->
+    <div id="age-selector" class="hidden-ui">
+      <button class="age-tab active" data-mode="3-5">3〜5さい<br><small>おもちゃばこ</small></button>
+      <button class="age-tab" data-mode="6-8">6〜8さい<br><small>ルートパズル</small></button>
+      <button class="age-tab" data-mode="9-10">9〜10さい<br><small>ピタゴラおんがく</small></button>
+    </div>
+
+    <!-- 6〜8歳モード用ステージセレクター（画面上部中央） -->
+    <div id="stage-selector" class="mode-ui hidden">
+      <button class="stage-btn active" data-stage="1">ステージ 1</button>
+      <button class="stage-btn" data-stage="2">ステージ 2</button>
+      <button class="stage-btn" data-stage="3">ステージ 3</button>
+    </div>
+
+    <!-- 9〜10歳モード用物理調整パネル（画面上部右側） -->
+    <div id="physics-panel" class="mode-ui hidden">
+      <div class="slider-group">
+        <label for="slider-gravity">じゅうりょく (重力): <span id="val-gravity">0.6</span></label>
+        <input type="range" id="slider-gravity" min="0.0" max="1.5" step="0.1" value="0.6">
+      </div>
+      <div class="slider-group">
+        <label for="slider-friction">まさつ (摩擦): <span id="val-friction">0.1</span></label>
+        <input type="range" id="slider-friction" min="0.0" max="0.5" step="0.05" value="0.1">
+      </div>
+      <button id="btn-toggle-guide" class="toggle-btn active">ガイド: ON</button>
+    </div>
+
     <!-- 物理エンジン描画用のCanvasがここに生成されます -->
 
     <!-- 下部コントロールパネル (3-5歳向けに大きくタップしやすいボタン) -->
     <div id="control-panel">
-      <div class="tool-group">
-        <button id="btn-circle" class="tool-btn active" data-shape="circle">
+      <!-- 3〜5歳用ツール群 -->
+      <div id="tools-3-5" class="tool-group mode-ui">
+        <button class="tool-btn active" data-shape="circle">
           <div class="shape-preview circle"></div>
           <span>まる</span>
         </button>
-        <button id="btn-triangle" class="tool-btn" data-shape="triangle">
+        <button class="tool-btn" data-shape="triangle">
           <div class="shape-preview triangle"></div>
           <span>さんかく</span>
         </button>
-        <button id="btn-square" class="tool-btn" data-shape="square">
+        <button class="tool-btn" data-shape="square">
           <div class="shape-preview square"></div>
           <span>しかく</span>
         </button>
       </div>
 
+      <!-- 6〜8歳用ツール群 -->
+      <div id="tools-6-8" class="tool-group mode-ui hidden">
+        <button class="tool-btn active" data-shape="slope">
+          <div class="shape-preview slope"></div>
+          <span>さかみち</span>
+        </button>
+        <button class="tool-btn" data-shape="bouncer">
+          <div class="shape-preview bouncer"></div>
+          <span>ジャンプ</span>
+        </button>
+        <button class="tool-btn" data-shape="conveyor">
+          <div class="shape-preview conveyor"></div>
+          <span>ベルトコンベア</span>
+        </button>
+      </div>
+
+      <!-- 9〜10歳用ツール群 -->
+      <div id="tools-9-10" class="tool-group mode-ui hidden">
+        <button class="tool-btn active" data-shape="note">
+          <div class="shape-preview note-icon">🎵</div>
+          <span>おんぷ</span>
+        </button>
+        <button class="tool-btn" data-shape="gear">
+          <div class="shape-preview gear-icon">⚙️</div>
+          <span>はぐるま</span>
+        </button>
+      </div>
+
+      <!-- 共通アクション群 -->
       <div class="action-group">
         <button id="btn-ball-drop" class="action-btn">
           <div class="ball-icon">●</div>
-          <span>ボールをおとす</span>
+          <span>ボール</span>
         </button>
         <button id="btn-clear" class="action-btn danger">
           <div class="trash-icon">🗑️</div>
-          <span>ぜんぶけす</span>
+          <span>けす</span>
         </button>
       </div>
     </div>

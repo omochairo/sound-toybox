@@ -17,7 +17,7 @@ body, html {
   color: #4a4a4a;
 }
 
-/* 読込中・スタート用オーバーレイ */
+/* 読込中・スタート用・クリア用オーバーレイ */
 .overlay {
   position: fixed;
   top: 0;
@@ -38,7 +38,7 @@ body, html {
   pointer-events: none;
 }
 
-.start-card {
+.start-card, .clear-card {
   text-align: center;
   padding: 40px 30px;
   background: white;
@@ -49,22 +49,27 @@ body, html {
   width: 360px;
 }
 
-.start-card h1 {
+.start-card h1, .clear-card h2 {
   font-size: 2rem;
   color: #ff6f61; /* パステルレッド */
   margin-bottom: 15px;
   line-height: 1.3;
 }
 
-.start-card .subtitle {
+.clear-card h2 {
+  color: #ffd166; /* ゴールド/イエロー */
+  text-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+.start-card .subtitle, .clear-card .clear-message {
   font-size: 1rem;
   color: #7d7568;
   margin-bottom: 30px;
   line-height: 1.5;
 }
 
-/* スタートボタンのアニメーション */
-#btn-start {
+/* スタート・クリアボタン */
+#btn-start, #btn-next-stage {
   font-family: 'M PLUS Rounded 1c', sans-serif;
   font-size: 1.25rem;
   font-weight: 700;
@@ -79,9 +84,14 @@ body, html {
   transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
-#btn-start:active {
+#btn-next-stage {
+  background-color: #ffd166;
+  color: #7d5700;
+  box-shadow: 0 8px 20px rgba(255, 209, 102, 0.4);
+}
+
+#btn-start:active, #btn-next-stage:active {
   transform: scale(0.95);
-  box-shadow: 0 4px 10px rgba(107, 203, 202, 0.4);
 }
 
 @keyframes pulse {
@@ -90,8 +100,17 @@ body, html {
   100% { transform: scale(1); }
 }
 
+@keyframes bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+
 .pulse-animation {
   animation: pulse 2s infinite ease-in-out;
+}
+
+.bounce-animation {
+  animation: bounce 1.5s infinite ease-in-out;
 }
 
 /* メインゲーム容器 */
@@ -114,7 +133,188 @@ canvas {
   display: block;
 }
 
-/* 下部コントロールパネル (スマホのセーフエリアも考慮) */
+/* 共通表示・非表示ユーティリティ */
+.hidden {
+  display: none !important;
+}
+
+.hidden-ui {
+  display: none !important;
+}
+
+/* -------------------------------------------------------------
+ * 画面上部：年齢選択ナビゲーションバー
+ * ------------------------------------------------------------- */
+#age-selector {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  z-index: 15;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-bottom: 3px solid #e2dcd0;
+  display: flex;
+  justify-content: space-around;
+  padding: 8px 8px calc(8px + env(safe-area-inset-top));
+}
+
+.age-tab {
+  flex: 1;
+  max-width: 120px;
+  padding: 6px 4px;
+  background-color: white;
+  border: 2px solid #e2dcd0;
+  border-radius: 12px;
+  color: #7d7568;
+  font-size: 0.75rem;
+  line-height: 1.2;
+  font-weight: 700;
+  text-align: center;
+  transition: all 0.2s ease;
+}
+
+.age-tab small {
+  font-size: 0.55rem;
+  font-weight: 500;
+  opacity: 0.8;
+}
+
+.age-tab:active {
+  transform: scale(0.95);
+}
+
+/* 年齢ごとのアクティブ状態テーマカラー */
+.age-tab[data-mode="3-5"].active {
+  background-color: #6bcbca; /* パステルグリーン */
+  border-color: #55b7b6;
+  color: white;
+}
+
+.age-tab[data-mode="6-8"].active {
+  background-color: #4ea8de; /* パステルブルー */
+  border-color: #3b8ebf;
+  color: white;
+}
+
+.age-tab[data-mode="9-10"].active {
+  background-color: #b39ddb; /* パステルパープル */
+  border-color: #9575cd;
+  color: white;
+}
+
+/* -------------------------------------------------------------
+ * 画面上部2段目：ステージ選択および物理調整パネル
+ * ------------------------------------------------------------- */
+
+/* 6〜8歳：ステージセレクター */
+#stage-selector {
+  position: absolute;
+  top: calc(55px + env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  display: flex;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.9);
+  padding: 6px 12px;
+  border-radius: 20px;
+  border: 2px solid #e2dcd0;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.03);
+}
+
+.stage-btn {
+  padding: 6px 12px;
+  border-radius: 12px;
+  background-color: white;
+  border: 2px solid #e2dcd0;
+  color: #7d7568;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.stage-btn.active {
+  background-color: #4ea8de;
+  border-color: #4ea8de;
+  color: white;
+}
+
+/* 9〜10歳：物理調整パネル */
+#physics-panel {
+  position: absolute;
+  top: calc(55px + env(safe-area-inset-top));
+  left: 10px;
+  right: 10px;
+  z-index: 10;
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 20px;
+  border: 2px solid #e2dcd0;
+  padding: 10px 15px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.03);
+}
+
+.slider-group {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #7d7568;
+  gap: 2px;
+}
+
+.slider-group label {
+  display: flex;
+  justify-content: space-between;
+}
+
+.slider-group label span {
+  color: #b39ddb;
+}
+
+.slider-group input[type="range"] {
+  width: 100%;
+  height: 8px;
+  border-radius: 4px;
+  background: #e2dcd0;
+  outline: none;
+  -webkit-appearance: none;
+}
+
+.slider-group input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #b39ddb;
+  cursor: pointer;
+  border: 2px solid white;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+}
+
+.toggle-btn {
+  padding: 6px 12px;
+  border-radius: 12px;
+  background-color: white;
+  border: 2px solid #e2dcd0;
+  color: #7d7568;
+  font-size: 0.75rem;
+  font-weight: 700;
+  width: 100%;
+}
+
+.toggle-btn.active {
+  background-color: #b39ddb;
+  border-color: #b39ddb;
+  color: white;
+}
+
+/* -------------------------------------------------------------
+ * 画面下部：コントロールパネル
+ * ------------------------------------------------------------- */
 #control-panel {
   position: absolute;
   bottom: 0;
@@ -135,7 +335,7 @@ canvas {
 /* ツールグループとアクショングループ */
 .tool-group, .action-group {
   display: flex;
-  gap: 10px;
+  gap: 8px;
 }
 
 /* ボタン共通設定 */
@@ -158,27 +358,37 @@ button:active {
 
 /* 形状選択ボタン */
 .tool-btn {
-  width: 75px;
-  height: 75px;
-  border-radius: 20px;
+  width: 68px;
+  height: 68px;
+  border-radius: 16px;
   background-color: white;
   border: 3px solid #e2dcd0;
   color: #7d7568;
-  font-size: 0.75rem;
-  gap: 6px;
+  font-size: 0.65rem;
+  gap: 4px;
 }
 
-.tool-btn.active {
+/* 年齢別アクティブスタイル */
+#tools-3-5 .tool-btn.active {
   border-color: #6bcbca;
   background-color: #eef9f9;
   color: #3b8a89;
-  box-shadow: 0 4px 10px rgba(107, 203, 202, 0.2);
+}
+#tools-6-8 .tool-btn.active {
+  border-color: #4ea8de;
+  background-color: #edf7fc;
+  color: #2b7099;
+}
+#tools-9-10 .tool-btn.active {
+  border-color: #b39ddb;
+  background-color: #f5f0fa;
+  color: #6a4f9c;
 }
 
 /* 形状プレビューアイコン */
 .shape-preview {
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   transition: transform 0.2s ease;
 }
 
@@ -190,15 +400,62 @@ button:active {
 .triangle {
   width: 0;
   height: 0;
-  border-left: 14px solid transparent;
-  border-right: 14px solid transparent;
-  border-bottom: 26px solid #4ea8de; /* パステルブルー */
+  border-left: 12px solid transparent;
+  border-right: 12px solid transparent;
+  border-bottom: 22px solid #4ea8de; /* パステルブルー */
   background-color: transparent;
 }
 
 .square {
   background-color: #ffd166; /* パステルイエロー */
-  border-radius: 6px;
+  border-radius: 5px;
+}
+
+/* 6-8歳 ギミックアイコン */
+.slope {
+  width: 24px;
+  height: 8px;
+  background-color: #a0c4ff;
+  border-radius: 2px;
+  transform: rotate(-25deg) translateY(4px);
+}
+
+.bouncer {
+  width: 22px;
+  height: 22px;
+  background-color: #ffadad;
+  border-radius: 50%;
+  border: 3px dashed white;
+  box-shadow: 0 0 0 2px #ffadad;
+}
+
+.conveyor {
+  width: 26px;
+  height: 8px;
+  background-color: #caffbf;
+  border-radius: 2px;
+  position: relative;
+}
+.conveyor::after {
+  content: "➔";
+  font-size: 8px;
+  color: #3b8a3b;
+  position: absolute;
+  top: -4px;
+  left: 4px;
+}
+
+/* 9-10歳 ギミックアイコン */
+.note-icon {
+  font-size: 1.4rem;
+  color: #b39ddb;
+  line-height: 1;
+}
+
+.gear-icon {
+  font-size: 1.4rem;
+  color: #7d7568;
+  line-height: 1;
 }
 
 .tool-btn.active .shape-preview {
@@ -207,14 +464,14 @@ button:active {
 
 /* アクションボタン (リセットやボール追加) */
 .action-btn {
-  width: 80px;
-  height: 75px;
-  border-radius: 20px;
+  width: 70px;
+  height: 68px;
+  border-radius: 16px;
   background-color: white;
   border: 3px solid #e2dcd0;
   color: #7d7568;
-  font-size: 0.75rem;
-  gap: 6px;
+  font-size: 0.65rem;
+  gap: 4px;
 }
 
 .action-btn.danger {
@@ -222,34 +479,69 @@ button:active {
 }
 
 .ball-icon {
-  font-size: 1.5rem;
+  font-size: 1.3rem;
   color: #6bcbca;
   line-height: 1;
 }
 
 .trash-icon {
-  font-size: 1.5rem;
+  font-size: 1.3rem;
   line-height: 1;
 }
 
-/* スマホ横向きやタブレット用のレイアウト最適化 */
+/* スマホ横向きや短尺端末用のレイアウト最適化 */
 @media (max-height: 500px) {
+  #age-selector {
+    padding: 4px;
+  }
+  .age-tab {
+    padding: 3px;
+    font-size: 0.65rem;
+  }
+  .age-tab small {
+    display: none;
+  }
+  #stage-selector {
+    top: 40px;
+    padding: 3px 8px;
+  }
+  #physics-panel {
+    top: 40px;
+    padding: 6px 12px;
+    flex-direction: row;
+    gap: 15px;
+  }
+  .slider-group {
+    flex: 1;
+  }
+  .toggle-btn {
+    width: auto;
+  }
   #control-panel {
-    padding: 8px 15px calc(8px + env(safe-area-inset-bottom));
+    padding: 6px 15px calc(6px + env(safe-area-inset-bottom));
   }
   .tool-btn, .action-btn {
-    width: 65px;
-    height: 65px;
+    width: 55px;
+    height: 55px;
     font-size: 0.65rem;
-    gap: 3px;
+    gap: 2px;
   }
   .shape-preview {
-    width: 22px;
-    height: 22px;
+    width: 18px;
+    height: 18px;
   }
   .triangle {
-    border-left: 11px solid transparent;
-    border-right: 11px solid transparent;
-    border-bottom: 20px solid #4ea8de;
+    border-left: 9px solid transparent;
+    border-right: 9px solid transparent;
+    border-bottom: 16px solid #4ea8de;
+  }
+}
+
+/* タブレットなどの広い横画面用のレイアウト微調整 */
+@media (min-width: 600px) {
+  #physics-panel {
+    left: auto;
+    right: 20px;
+    width: 250px;
   }
 }
