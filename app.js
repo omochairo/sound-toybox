@@ -20,6 +20,9 @@ let lastFpsUpdateTime = 0;     // FPS更新用の最終時間
 let frameCount = 0;            // FPSカウント用フレーム数
 let currentFps = 60;           // 現在のFPS値
 let debugLogs = [];            // デバッグログ履歴
+let lastPlayToneTime = 0;      // 鉄琴音の最終発音時間
+let lastPlayDrumTime = 0;      // ドラム音の最終発音時間
+let lastBallDropTime = 0;      // 手動ボール投下の最終時間
 
 // 色パレット
 const COLORS = {
@@ -178,6 +181,12 @@ function initAudio() {
 function playTone(freq, velocity = 0.5) {
   if (!audioCtx) return;
 
+  const nowMs = Date.now();
+  if (nowMs - lastPlayToneTime < 35) {
+    return; // CPU過負荷防止
+  }
+  lastPlayToneTime = nowMs;
+
   const now = audioCtx.currentTime;
   const osc1 = audioCtx.createOscillator();
   const gain1 = audioCtx.createGain();
@@ -215,6 +224,13 @@ function playTone(freq, velocity = 0.5) {
 // 打楽器（ドラム）音再生
 function playDrum(type, velocity = 0.5) {
   if (!audioCtx) return;
+
+  const nowMs = Date.now();
+  if (nowMs - lastPlayDrumTime < 35) {
+    return; // CPU過負荷防止
+  }
+  lastPlayDrumTime = nowMs;
+
   const now = audioCtx.currentTime;
 
   if (type === 'bass') {
@@ -1275,6 +1291,11 @@ function setupUI() {
 
   // ボール手動落下
   document.getElementById('btn-ball-drop').addEventListener('click', () => {
+    const now = Date.now();
+    if (now - lastBallDropTime < 120) {
+      return; // 120ms以内の連打は無視（物理的めり込み・クラッシュ防止）
+    }
+    lastBallDropTime = now;
     dropBall();
     playTone(587.33, 0.3); // レ
   });
