@@ -88,7 +88,10 @@
           <input type="range" id="slider-bpm" min="40" max="200" step="10" value="120">
         </div>
       </div>
-      <button id="btn-toggle-guide" class="toggle-btn active">ガイド: ON</button>
+      <div class="toggle-row" style="display: flex; gap: 8px; width: 100%;">
+        <button id="btn-toggle-guide" class="toggle-btn active" style="flex: 1;">ガイド: ON</button>
+        <button id="btn-toggle-debug-910" class="toggle-btn" style="flex: 1;">デバッグ: OFF</button>
+      </div>
     </div>
 
     <!-- 物理エンジン描画用のCanvasがここに生成されます -->
@@ -166,6 +169,41 @@
           <div class="trash-icon">🗑️</div>
           <span>けす</span>
         </button>
+      </div>
+    </div>
+
+    <!-- 全モード共通デバッグトグルボタン（フローティング） -->
+    <button id="btn-debug-float" title="デバッグ情報を表示">🛠️</button>
+
+    <!-- リアルタイムデバッグパネル -->
+    <div id="debug-panel" class="hidden">
+      <div class="debug-header">
+        <span>🛠️ デバッグ情報</span>
+        <button id="btn-close-debug">×</button>
+      </div>
+      <div class="debug-body">
+        <div class="debug-row">
+          <span>モード:</span>
+          <span id="debug-mode">-</span>
+        </div>
+        <div class="debug-row">
+          <span>配列ボール数 (JS):</span>
+          <span id="debug-arr-balls">0</span>
+        </div>
+        <div class="debug-row">
+          <span>世界ボール数 (Matter):</span>
+          <span id="debug-world-balls">0</span>
+        </div>
+        <div class="debug-row">
+          <span>スリープボール数:</span>
+          <span id="debug-sleep-balls">0</span>
+        </div>
+        <div class="debug-row">
+          <span>描画FPS:</span>
+          <span id="debug-fps">60</span>
+        </div>
+        <div class="debug-log-title">システムログ:</div>
+        <div id="debug-log-list"></div>
       </div>
     </div>
   </div>

@@ -15,6 +15,11 @@ let isGuideOn = true;         // 9-10歳ガイド表示
 let ballTimer = null;         // ボール自動落下タイマー
 let selectedNoteBlock = null; // ピアノ鍵盤で編集中の音符ブロック
 let activeBalls = [];         // 画面内に蓄積されているボールの追跡配列
+let isDebugVisible = false;    // デバッグログパネルの表示状態
+let lastFpsUpdateTime = 0;     // FPS更新用の最終時間
+let frameCount = 0;            // FPSカウント用フレーム数
+let currentFps = 60;           // 現在のFPS値
+let debugLogs = [];            // デバッグログ履歴
 
 // 色パレット
 const COLORS = {
@@ -95,6 +100,67 @@ let startSpawner = null;
 const defaultCategory = 0x0001;
 const particleCategory = 0x0002;
 const gearCategory = 0x0004; // 歯車同士の物理衝突をオフにするためのカテゴリ
+
+// -------------------------------------------------------------
+// 0. デバッグログシステム
+// -------------------------------------------------------------
+function logDebug(text) {
+  const now = new Date();
+  const timeStr = now.toTimeString().split(' ')[0] + '.' + String(now.getMilliseconds()).padStart(3, '0');
+  const logMsg = `[${timeStr}] ${text}`;
+  
+  debugLogs.unshift(logMsg); // 配列の先頭に追加
+  if (debugLogs.length > 20) {
+    debugLogs.pop(); // 最大20件
+  }
+  
+  const logListEl = document.getElementById('debug-log-list');
+  if (logListEl) {
+    logListEl.innerHTML = debugLogs.map(log => `<div class="debug-log-item">${log}</div>`).join('');
+  }
+  console.log(logMsg);
+}
+
+function toggleDebugPanel(forceState) {
+  if (forceState !== undefined) {
+    isDebugVisible = forceState;
+  } else {
+    isDebugVisible = !isDebugVisible;
+  }
+  
+  const panel = document.getElementById('debug-panel');
+  if (panel) {
+    if (isDebugVisible) {
+      panel.classList.remove('hidden');
+    } else {
+      panel.classList.add('hidden');
+    }
+  }
+
+  // 9-10歳モード用調整パネルのトグルボタンの見た目を同期
+  const btn910 = document.getElementById('btn-toggle-debug-910');
+  if (btn910) {
+    if (isDebugVisible) {
+      btn910.classList.add('active');
+      btn910.innerText = 'デバッグ: ON';
+    } else {
+      btn910.classList.remove('active');
+      btn910.innerText = 'デバッグ: OFF';
+    }
+  }
+
+  // フローティングボタンの見た目を同期
+  const btnFloat = document.getElementById('btn-debug-float');
+  if (btnFloat) {
+    if (isDebugVisible) {
+      btnFloat.style.background = '#ffd166';
+      btnFloat.style.borderColor = '#ffd166';
+    } else {
+      btnFloat.style.background = 'rgba(255, 255, 255, 0.85)';
+      btnFloat.style.borderColor = '#e2dcd0';
+    }
+  }
+}
 
 // -------------------------------------------------------------
 // 1. サウンドシステム（Web Audio API & ドラムシンセサイザー）
@@ -279,6 +345,7 @@ function createWalls() {
 // -------------------------------------------------------------
 function switchMode(mode) {
   currentMode = mode;
+  logDebug(`【モード切替】${mode} 歳向けへ`);
   closePiano();
 
   // タイマーの停止
@@ -607,11 +674,16 @@ function dropBall() {
 
   // 画面内のボール最大数を120個に制限し、最古のボールを順次消去する
   activeBalls.push(ball);
+  logDebug(`【ボール追加】サイズ: ${Math.round(radius)}px, 配列ボール数: ${activeBalls.length}個`);
+
   if (activeBalls.length > 120) {
     const oldestBall = activeBalls.shift();
     // すでに画面外で消滅していないか確認して物理世界から削除
     if (Composite.allBodies(engine.world).includes(oldestBall)) {
       Composite.remove(engine.world, oldestBall);
+      logDebug(`【上限消去】120個を超えたため最古ボールを物理世界から削除しました`);
+    } else {
+      logDebug(`【上限消去】120個を超えたため最古ボールを配列から削除しました（すでに消滅済み）`);
     }
   }
 
@@ -649,6 +721,7 @@ function handleCollisionStart(pair) {
 
     // ① 6-8歳パズル：ゴール到達判定
     if (currentMode === '6-8' && target === goalSensor) {
+      logDebug(`【ゴール到達】ボールがゴールに入りました！ステージクリア`);
       handleStageClear();
       Composite.remove(engine.world, ball);
       const index = activeBalls.indexOf(ball);
@@ -723,6 +796,39 @@ function updateLoop() {
   const bodies = Composite.allBodies(engine.world);
   const container = document.getElementById('game-container');
   const height = container.clientHeight;
+  const width = container.clientWidth;
+
+  // --- 自己修復同期ロジック ---
+  // 物理世界に実在しないボールを activeBalls から除外
+  activeBalls = activeBalls.filter(ball => bodies.includes(ball));
+
+  // --- FPS計測 ＆ デバッグHUD定期更新 ---
+  frameCount++;
+  const now = performance.now();
+  if (now - lastFpsUpdateTime >= 200) { // 200msごとに更新
+    currentFps = Math.round((frameCount * 1000) / (now - lastFpsUpdateTime));
+    frameCount = 0;
+    lastFpsUpdateTime = now;
+
+    // デバッグHUDの表示更新（パネルが表示されている場合のみ）
+    if (isDebugVisible) {
+      const activeBallCount = activeBalls.length;
+      const worldBallCount = bodies.filter(b => b.label === 'ball').length;
+      const sleepingBallCount = bodies.filter(b => b.label === 'ball' && b.isSleeping).length;
+
+      const debugModeEl = document.getElementById('debug-mode');
+      const debugArrBallsEl = document.getElementById('debug-arr-balls');
+      const debugWorldBallsEl = document.getElementById('debug-world-balls');
+      const debugSleepBallsEl = document.getElementById('debug-sleep-balls');
+      const debugFpsEl = document.getElementById('debug-fps');
+
+      if (debugModeEl) debugModeEl.innerText = currentMode;
+      if (debugArrBallsEl) debugArrBallsEl.innerText = activeBallCount;
+      if (debugWorldBallsEl) debugWorldBallsEl.innerText = worldBallCount;
+      if (debugSleepBallsEl) debugSleepBallsEl.innerText = sleepingBallCount;
+      if (debugFpsEl) debugFpsEl.innerText = currentFps;
+    }
+  }
 
   // はぐるま/モーターギアの一覧を抽出
   const gears = bodies.filter(b => b.label === 'block' && (b.blockType === 'gear' || b.blockType === 'motor-gear'));
@@ -759,12 +865,14 @@ function updateLoop() {
   // 3. ボールの削除、パーティクルのフェードアウト
   bodies.forEach((body) => {
     // 画面外ボールの削除（管理配列からも取り除く）
-    if (body.label === 'ball' && body.position.y > height + 60) {
+    // Y方向の落下（height + 60）、X方向の左右はみ出し（<-100 または >width + 100）、上方向の吹き飛び（<-200）を検知
+    if (body.label === 'ball' && (body.position.y > height + 60 || body.position.x < -100 || body.position.x > width + 100 || body.position.y < -200)) {
       Composite.remove(engine.world, body);
       const index = activeBalls.indexOf(body);
       if (index > -1) {
         activeBalls.splice(index, 1);
       }
+      logDebug(`【画面外消去】位置: (${Math.round(body.position.x)}, ${Math.round(body.position.y)})`);
     }
 
     if (body.label === 'particle') {
@@ -818,6 +926,7 @@ function setupInteraction() {
     // ① 長押し（600ms）による削除処理
     if (clickedBody) {
       pressTimer = setTimeout(() => {
+        const type = clickedBody.blockType || '通常ブロック';
         Composite.remove(engine.world, clickedBody);
         
         // ギアの場合はConstraint（ピン留め）も削除
@@ -827,6 +936,7 @@ function setupInteraction() {
             if (c.bodyB === clickedBody) Composite.remove(engine.world, c);
           });
         }
+        logDebug(`【ブロック削除】長押し消去: ${type}`);
         playTone(150, 0.2); // 消去音
         draggedBody = null;
       }, 600);
@@ -841,21 +951,25 @@ function setupInteraction() {
         if (clickedBody.blockType === 'slope' || clickedBody.blockType === 'conveyor') {
           // 45度回転
           Body.setAngle(clickedBody, clickedBody.angle + Math.PI / 4);
+          logDebug(`【ブロック回転】${clickedBody.blockType}: 角度: ${Math.round(clickedBody.angle * (180 / Math.PI))}度`);
           playTone(440, 0.4);
         } 
         else if (clickedBody.blockType === 'drum') {
           // ドラムの種類を切り替え (bass ➔ snare)
           clickedBody.drumType = clickedBody.drumType === 'bass' ? 'snare' : 'bass';
           clickedBody.render.fillStyle = clickedBody.drumType === 'bass' ? '#ffc6ff' : '#caffbf';
+          logDebug(`【ドラム切替】種類: ${clickedBody.drumType}`);
           playDrum(clickedBody.drumType, 0.5);
         }
         else if (clickedBody.blockType === 'note') {
           // おんぷブロックの場合：ピアノキーボードをトグル表示
+          logDebug(`【ピアノ表示】おんぷブロック音階選択`);
           openPiano(clickedBody, coords);
         }
         else {
           // 回転や切替がない形状は即削除
           Composite.remove(engine.world, clickedBody);
+          logDebug(`【ブロック削除】ダブルタップ消去: ${clickedBody.blockType || '通常ブロック'}`);
           playTone(150, 0.2);
         }
         
@@ -966,10 +1080,12 @@ function createBlock(x, y) {
   // 3. はぐるま類
   else if (currentShape === 'gear') {
     createGear(x, y, false);
+    logDebug(`【ブロック配置】はぐるま: (${Math.round(x)}, ${Math.round(y)})`);
     playTone(392.00, 0.4);
     return;
   } else if (currentShape === 'motor-gear') {
     createGear(x, y, true);
+    logDebug(`【ブロック配置】モーターギア: (${Math.round(x)}, ${Math.round(y)})`);
     playTone(392.00, 0.4);
     return;
   } 
@@ -991,6 +1107,7 @@ function createBlock(x, y) {
     });
   }
 
+  logDebug(`【ブロック配置】${currentShape}: (${Math.round(x)}, ${Math.round(y)})`);
   playTone(392.00, 0.4); // 配置音
   Composite.add(engine.world, block);
 }
@@ -1165,6 +1282,7 @@ function setupUI() {
   // 全部けす
   document.getElementById('btn-clear').addEventListener('click', () => {
     closePiano();
+    logDebug(`【全クリア】画面上のオブジェクトとボールをすべてクリアしました`);
     activeBalls = []; // ボール管理配列も完全にクリア
     const bodies = Composite.allBodies(engine.world);
     bodies.forEach((body) => {
@@ -1223,6 +1341,31 @@ function setupUI() {
     btnToggleGuide.innerText = isGuideOn ? 'ガイド: ON' : 'ガイド: OFF';
     playTone(440, 0.3);
   });
+
+  // デバッグ表示切り替えイベント
+  const btnDebugFloat = document.getElementById('btn-debug-float');
+  if (btnDebugFloat) {
+    btnDebugFloat.addEventListener('click', () => {
+      toggleDebugPanel();
+      playTone(523.25, 0.3);
+    });
+  }
+
+  const btnToggleDebug910 = document.getElementById('btn-toggle-debug-910');
+  if (btnToggleDebug910) {
+    btnToggleDebug910.addEventListener('click', () => {
+      toggleDebugPanel();
+      playTone(523.25, 0.3);
+    });
+  }
+
+  const btnCloseDebug = document.getElementById('btn-close-debug');
+  if (btnCloseDebug) {
+    btnCloseDebug.addEventListener('click', () => {
+      toggleDebugPanel(false);
+      playTone(440, 0.3);
+    });
+  }
 }
 
 // 物理エンジンサイズのリサイズ処理
