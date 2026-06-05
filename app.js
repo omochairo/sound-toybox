@@ -277,7 +277,7 @@ function initPhysics() {
 
   engine = Engine.create({
     gravity: { y: 0.6 },
-    enableSleeping: true // スリープ機能有効化（溜まったボールの自重によるすり抜けを防止）
+    enableSleeping: false // スリープによるめり込み・一斉落下（ウエイクアップ時のすり抜け）を防ぐため無効化
   });
 
   // 計算精度を最大設定（スリープにより負荷が下がったため、めり込みを完全に防ぐ）
@@ -662,8 +662,8 @@ function dropBall() {
   const randomColor = COLORS.balls[Math.floor(Math.random() * COLORS.balls.length)];
 
   const ball = Bodies.circle(startX, startY, radius, {
-    restitution: 0.85,
-    friction: 0.02,
+    restitution: 0.4, // 反発を抑えて山積みを安定化（すり抜けを防止）
+    friction: 0.05,    // 少し摩擦を増やして滑り落ちにくくする
     collisionFilter: {
       category: defaultCategory,
       mask: defaultCategory | gearCategory // ボールは壁、通常ブロック、はぐるま全てと衝突する
