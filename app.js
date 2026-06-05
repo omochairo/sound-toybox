@@ -987,7 +987,7 @@ function createBlock(x, y) {
       drumType: 'bass', // 'bass'＝ドン, 'snare'＝シャン
       render: { fillStyle: '#ffc6ff' }
     });
-
+  }
 
   playTone(392.00, 0.4); // 配置音
   Composite.add(engine.world, block);
