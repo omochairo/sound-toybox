@@ -210,12 +210,13 @@ function initPhysics() {
   const height = container.clientHeight;
 
   engine = Engine.create({
-    gravity: { y: 0.6 }
+    gravity: { y: 0.6 },
+    enableSleeping: true // スリープ機能有効化（溜まったボールの自重によるすり抜けを防止）
   });
 
-  // 物理計算の精度を少しだけ向上（デフォルトは6。負荷を抑えつつめり込みを低減）
-  engine.positionIterations = 9;
-  engine.velocityIterations = 9;
+  // 計算精度を最大設定（スリープにより負荷が下がったため、めり込みを完全に防ぐ）
+  engine.positionIterations = 16;
+  engine.velocityIterations = 16;
 
   render = Render.create({
     element: container,
@@ -225,7 +226,8 @@ function initPhysics() {
       height: height,
       wireframes: false,
       background: 'transparent',
-      pixelRatio: window.devicePixelRatio || 1
+      pixelRatio: window.devicePixelRatio || 1,
+      showSleeping: false // スリープしたボールの色が薄くなるのを防ぐ
     }
   });
 
