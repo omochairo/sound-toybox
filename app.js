@@ -23,6 +23,7 @@ let debugLogs = [];            // デバッグログ履歴
 let lastPlayToneTime = 0;      // 鉄琴音の最終発音時間
 let lastPlayDrumTime = 0;      // ドラム音の最終発音時間
 let lastBallDropTime = 0;      // 手動ボール投下の最終時間
+let activeOscillatorsCount = 0; // 同時アクティブ発音（ボイス）数
 
 // 色パレット
 const COLORS = {
@@ -185,7 +186,13 @@ function playTone(freq, velocity = 0.5) {
   if (nowMs - lastPlayToneTime < 35) {
     return; // CPU過負荷防止
   }
+
+  if (activeOscillatorsCount >= 5) {
+    return; // 同時発音数リミッター（最大5音）
+  }
+
   lastPlayToneTime = nowMs;
+  activeOscillatorsCount++;
 
   const now = audioCtx.currentTime;
   const osc1 = audioCtx.createOscillator();
@@ -202,7 +209,7 @@ function playTone(freq, velocity = 0.5) {
   
   gain1.gain.setValueAtTime(0, now);
   gain1.gain.linearRampToValueAtTime(volume, now + 0.005);
-  gain1.gain.exponentialRampToValueAtTime(0.0001, now + 0.7);
+  gain1.gain.exponentialRampToValueAtTime(0.0001, now + 0.4); // デュレーション短縮
 
   gain2.gain.setValueAtTime(0, now);
   gain2.gain.linearRampToValueAtTime(volume * 0.5, now + 0.002);
@@ -214,8 +221,12 @@ function playTone(freq, velocity = 0.5) {
   osc2.connect(gain2);
   gain2.connect(audioCtx.destination);
 
+  osc1.onended = () => {
+    activeOscillatorsCount = Math.max(0, activeOscillatorsCount - 1);
+  };
+
   osc1.start(now);
-  osc1.stop(now + 0.8);
+  osc1.stop(now + 0.5); // 0.8sから0.5sに短縮
   
   osc2.start(now);
   osc2.stop(now + 0.1);
@@ -229,7 +240,13 @@ function playDrum(type, velocity = 0.5) {
   if (nowMs - lastPlayDrumTime < 35) {
     return; // CPU過負荷防止
   }
+
+  if (activeOscillatorsCount >= 5) {
+    return; // 同時発音数リミッター
+  }
+
   lastPlayDrumTime = nowMs;
+  activeOscillatorsCount++;
 
   const now = audioCtx.currentTime;
 
@@ -249,6 +266,10 @@ function playDrum(type, velocity = 0.5) {
     osc.connect(gain);
     gain.connect(audioCtx.destination);
     
+    osc.onended = () => {
+      activeOscillatorsCount = Math.max(0, activeOscillatorsCount - 1);
+    };
+
     osc.start(now);
     osc.stop(now + 0.22);
   } 
@@ -278,6 +299,10 @@ function playDrum(type, velocity = 0.5) {
     filter.connect(gain);
     gain.connect(audioCtx.destination);
     
+    noise.onended = () => {
+      activeOscillatorsCount = Math.max(0, activeOscillatorsCount - 1);
+    };
+
     noise.start(now);
     noise.stop(now + 0.18);
   }
