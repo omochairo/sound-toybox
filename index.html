@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <!-- スマホでのズーム防止、スクロール抑止用のviewport設定 -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>おととかたちのピタゴラパズル | sound-toybox</title>
+  <link rel="stylesheet" href="style.css">
+  <!-- Google Fonts: 幼児向けに丸みのあるフォント（M PLUS Rounded 1c）を採用 -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@500;700&display=swap" rel="stylesheet">
+  <!-- Matter.js 2D物理エンジンライブラリ (CDN) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+</head>
+<body>
+
+  <!-- スタート画面 (iOS/Android の Web Audio 規制解除用) -->
+  <div id="start-screen" class="overlay">
+    <div class="start-card">
+      <h1>おととかたちの<br>ピタゴラパズル</h1>
+      <p class="subtitle">おもちゃを おいて ボールを はねかえそう！</p>
+      <button id="btn-start" class="pulse-animation">おとをだして あそぶ ▶</button>
+    </div>
+  </div>
+
+  <!-- メインゲーム画面 -->
+  <div id="game-container">
+    <!-- 物理エンジン描画用のCanvasがここに生成されます -->
+
+    <!-- 下部コントロールパネル (3-5歳向けに大きくタップしやすいボタン) -->
+    <div id="control-panel">
+      <div class="tool-group">
+        <button id="btn-circle" class="tool-btn active" data-shape="circle">
+          <div class="shape-preview circle"></div>
+          <span>まる</span>
+        </button>
+        <button id="btn-triangle" class="tool-btn" data-shape="triangle">
+          <div class="shape-preview triangle"></div>
+          <span>さんかく</span>
+        </button>
+        <button id="btn-square" class="tool-btn" data-shape="square">
+          <div class="shape-preview square"></div>
+          <span>しかく</span>
+        </button>
+      </div>
+
+      <div class="action-group">
+        <button id="btn-ball-drop" class="action-btn">
+          <div class="ball-icon">●</div>
+          <span>ボールをおとす</span>
+        </button>
+        <button id="btn-clear" class="action-btn danger">
+          <div class="trash-icon">🗑️</div>
+          <span>ぜんぶけす</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
