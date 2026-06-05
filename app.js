@@ -14,6 +14,7 @@ let isGameActive = false;
 let isGuideOn = true;         // 9-10歳ガイド表示
 let ballTimer = null;         // ボール自動落下タイマー
 let selectedNoteBlock = null; // ピアノ鍵盤で編集中の音符ブロック
+let activeBalls = [];         // 画面内に蓄積されているボールの追跡配列
 
 // 色パレット
 const COLORS = {
@@ -212,6 +213,10 @@ function initPhysics() {
     gravity: { y: 0.6 }
   });
 
+  // 物理計算の精度を少しだけ向上（デフォルトは6。負荷を抑えつつめり込みを低減）
+  engine.positionIterations = 9;
+  engine.velocityIterations = 9;
+
   render = Render.create({
     element: container,
     engine: engine,
@@ -226,7 +231,11 @@ function initPhysics() {
 
   Render.run(render);
 
-  runner = Runner.create();
+  // タイムステップを固定化（isFixed: true）し、処理が重くなった際もすり抜けワープを完全に防止する
+  runner = Runner.create({
+    isFixed: true,
+    delta: 1000 / 60
+  });
   Runner.run(runner, engine);
 
   createWalls();
@@ -274,6 +283,7 @@ function switchMode(mode) {
   stopBallTimer();
 
   // 物理世界クリアと壁再構築
+  activeBalls = []; // ボール管理配列もリセット
   Composite.clear(engine.world, false);
   createWalls();
 
@@ -593,6 +603,16 @@ function dropBall() {
     label: 'ball'
   });
 
+  // 画面内のボール最大数を120個に制限し、最古のボールを順次消去する
+  activeBalls.push(ball);
+  if (activeBalls.length > 120) {
+    const oldestBall = activeBalls.shift();
+    // すでに画面外で消滅していないか確認して物理世界から削除
+    if (Composite.allBodies(engine.world).includes(oldestBall)) {
+      Composite.remove(engine.world, oldestBall);
+    }
+  }
+
   Composite.add(engine.world, ball);
 }
 
@@ -629,10 +649,10 @@ function handleCollisionStart(pair) {
     if (currentMode === '6-8' && target === goalSensor) {
       handleStageClear();
       Composite.remove(engine.world, ball);
+      const index = activeBalls.indexOf(ball);
+      if (index > -1) activeBalls.splice(index, 1);
       return;
     }
-
-
 
     // ③ ブロック衝突発音
     if (target.label === 'block') {
@@ -736,8 +756,13 @@ function updateLoop() {
 
   // 3. ボールの削除、パーティクルのフェードアウト
   bodies.forEach((body) => {
+    // 画面外ボールの削除（管理配列からも取り除く）
     if (body.label === 'ball' && body.position.y > height + 60) {
       Composite.remove(engine.world, body);
+      const index = activeBalls.indexOf(body);
+      if (index > -1) {
+        activeBalls.splice(index, 1);
+      }
     }
 
     if (body.label === 'particle') {
@@ -912,11 +937,11 @@ function createBlock(x, y) {
   }
   // 2. 物理ギミック
   else if (currentShape === 'slope') {
-    block = Bodies.rectangle(x, y, 120, 18, {
+    block = Bodies.rectangle(x, y, 120, 30, {
       ...options,
       blockType: 'slope',
       angle: -Math.PI / 8,
-      render: { fillStyle: COLORS.slope, chamfer: { radius: 4 } }
+      render: { fillStyle: COLORS.slope, chamfer: { radius: 6 } }
     });
   } else if (currentShape === 'bouncer') {
     block = Bodies.circle(x, y, blockRadius - 5, {
@@ -930,10 +955,10 @@ function createBlock(x, y) {
       }
     });
   } else if (currentShape === 'conveyor') {
-    block = Bodies.rectangle(x, y, 140, 20, {
+    block = Bodies.rectangle(x, y, 140, 30, {
       ...options,
       blockType: 'conveyor',
-      render: { fillStyle: COLORS.conveyor, chamfer: { radius: 4 } }
+      render: { fillStyle: COLORS.conveyor, chamfer: { radius: 6 } }
     });
   }
   // 3. はぐるま類
@@ -1138,6 +1163,7 @@ function setupUI() {
   // 全部けす
   document.getElementById('btn-clear').addEventListener('click', () => {
     closePiano();
+    activeBalls = []; // ボール管理配列も完全にクリア
     const bodies = Composite.allBodies(engine.world);
     bodies.forEach((body) => {
       if (body.label === 'block' || body.label === 'ball' || body.label === 'particle') {
