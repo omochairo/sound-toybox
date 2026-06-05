@@ -680,6 +680,42 @@ function closePiano() {
   selectedNoteBlock = null;
 }
 
+// 衝突スパークルエフェクトの生成
+function createSparkles(x, y, color) {
+  const count = 5 + Math.floor(Math.random() * 5); // 5〜9個のパーティクル
+  const particles = [];
+
+  for (let i = 0; i < count; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 1 + Math.random() * 3;
+    const radius = 2 + Math.random() * 3;
+
+    const particle = Bodies.circle(x, y, radius, {
+      restitution: 0.5,
+      friction: 0,
+      label: 'particle',
+      collisionFilter: {
+        mask: 0 // パーティクル同士やボール、ブロックとの物理衝突をオフ（描画のみ）
+      },
+      render: {
+        fillStyle: color || '#ffd166',
+        opacity: 1.0
+      }
+    });
+
+    // 初速をランダムな方向に設定
+    Body.setVelocity(particle, {
+      x: Math.cos(angle) * speed,
+      y: Math.sin(angle) * speed - 2 // やや上方向に飛び散らせる
+    });
+
+    particle.lifespan = 30 + Math.floor(Math.random() * 20); // 30〜49フレーム生存
+    particles.push(particle);
+  }
+
+  Composite.add(engine.world, particles);
+}
+
 // -------------------------------------------------------------
 // 6. ボール落下・衝突・物理判定ループ
 // -------------------------------------------------------------
