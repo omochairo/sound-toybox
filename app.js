@@ -27,7 +27,6 @@ const COLORS = {
   note: '#b39ddb',
   gear: '#a8dadc',
   motorGear: '#ffa6c9',   // モーターギア：ピンクがかったシアン
-  loopGate: '#9bf6ff',    // ループゲート
   drum: '#ffc6ff',        // ドラムブロック
   walls: '#e2dcd0',
   balls: ['#ffadad', '#ffd6a5', '#fdffb6', '#caffbf', '#9bf6ff', '#a0c4ff', '#bdb2ff', '#ffc6ff']
@@ -301,6 +300,14 @@ function switchMode(mode) {
     document.getElementById('tools-9-10').classList.remove('hidden');
     document.getElementById('physics-panel').classList.remove('hidden');
     
+    // ガイドの初期状態を確実にONにする
+    isGuideOn = true;
+    const btnToggleGuide = document.getElementById('btn-toggle-guide');
+    if (btnToggleGuide) {
+      btnToggleGuide.classList.add('active');
+      btnToggleGuide.innerText = 'ガイド: ON';
+    }
+
     // サブカテゴリ初期化
     switchSubCategory('shape');
     applyPhysicsSliders();
@@ -625,28 +632,7 @@ function handleCollisionStart(pair) {
       return;
     }
 
-    // ② 9-10歳：ループゲート（吸い込みテレポート）
-    if (target.blockType === 'loop-gate') {
-      // ワープ先座標の計算（スタート発射台付近）
-      const container = document.getElementById('game-container');
-      const startX = currentMode === '6-8' && startSpawner ? startSpawner.position.x : container.clientWidth / 2;
-      const startY = currentMode === '6-8' && startSpawner ? startSpawner.position.y - 25 : 30;
 
-      // ワープエフェクト星の発生
-      createSparkles(ball.position.x, ball.position.y, COLORS.loopGate);
-      
-      // テレポート実行
-      Body.setPosition(ball, { x: startX, y: startY });
-      Body.setVelocity(ball, { x: 0, y: 0 });
-
-      // ワープ先でも星を散らす
-      createSparkles(startX, startY, COLORS.loopGate);
-
-      // ワープ音（ピコーン）
-      playTone(880.00, 0.4);
-      setTimeout(() => playTone(1174.66, 0.4), 80);
-      return;
-    }
 
     // ③ ブロック衝突発音
     if (target.label === 'block') {
@@ -854,8 +840,8 @@ function setupInteraction() {
     }
 
     if (clickedBody) {
-      // はぐるま/モーターギア/ループゲートはドラッグ固定にする
-      if (clickedBody.blockType !== 'gear' && clickedBody.blockType !== 'motor-gear' && clickedBody.blockType !== 'loop-gate') {
+      // はぐるま/モーターギアはドラッグ固定にする
+      if (clickedBody.blockType !== 'gear' && clickedBody.blockType !== 'motor-gear') {
         draggedBody = clickedBody;
         dragOffset.x = coords.x - clickedBody.position.x;
         dragOffset.y = coords.y - clickedBody.position.y;
@@ -976,15 +962,7 @@ function createBlock(x, y) {
       drumType: 'bass', // 'bass'＝ドン, 'snare'＝シャン
       render: { fillStyle: '#ffc6ff' }
     });
-  } else if (currentShape === 'loop-gate') {
-    // ループゲートはボールとのみ衝突するセンサーボディ
-    block = Bodies.rectangle(x, y, 65, 45, {
-      ...options,
-      isSensor: true,
-      blockType: 'loop-gate',
-      render: { fillStyle: 'transparent' }
-    });
-  }
+
 
   playTone(392.00, 0.4); // 配置音
   Composite.add(engine.world, block);
@@ -1041,24 +1019,7 @@ function setupCustomRenderer() {
         ctx.restore();
       }
 
-      // ⑤ ループゲート（ワープ）の渦巻きとガイド
-      if (body.label === 'block' && body.blockType === 'loop-gate') {
-        ctx.save();
-        ctx.translate(body.position.x, body.position.y);
-        ctx.rotate(Date.now() * -0.01);
-        ctx.fillStyle = "rgba(155, 246, 255, 0.4)";
-        ctx.beginPath();
-        ctx.arc(0, 0, 22, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = "#00b4d8";
-        ctx.font = "26px 'M PLUS Rounded 1c', sans-serif";
-        ctx.fillText("🌀", 0, 0);
-        ctx.restore();
 
-        ctx.fillStyle = "#00b4d8";
-        ctx.font = "bold 10px 'M PLUS Rounded 1c', sans-serif";
-        ctx.fillText("ワープ", body.position.x, body.position.y + 30);
-      }
 
       // ⑥ はぐるま・モーターギアのピン留めの装飾
       if (body.label === 'block' && (body.blockType === 'gear' || body.blockType === 'motor-gear')) {
