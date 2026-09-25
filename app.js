@@ -1,5 +1,5 @@
 // Matter.js モジュールのショートカット
-const { Engine, Render, Runner, Bodies, Composite, Body, Events, Vector, Constraint } = Matter;
+const { Engine, Render, Runner, Bodies, Composite, Body, Events, Vector, Constraint, Sleeping } = Matter;
 
 // グローバル変数
 let engine;
@@ -86,6 +86,7 @@ let STAGE_DATA = [
 let draggedBody = null;
 let dragOffset = { x: 0, y: 0 };
 let lastTapTime = 0;
+let lastTappedBody = null;
 let pressTimer = null;
 let blockRadius = 35;
 let goalSensor = null;
@@ -288,6 +289,7 @@ function switchMode(mode) {
   activeBalls = []; // ボール管理配列もリセット
   Composite.clear(engine.world, false);
   createWalls();
+  engine.gravity.y = 0.6; // 9-10歳のスライダーで変えた重力を他モードへ持ち越さない
 
   // モードUI表示切り替え
   document.querySelectorAll('.mode-ui').forEach(el => el.classList.add('hidden'));
@@ -397,6 +399,7 @@ function loadStage(stageNum) {
   currentStage = stageNum;
   closePiano();
 
+  activeBalls = []; // 下で消すボールの参照を管理配列に残さない
   const bodies = Composite.allBodies(engine.world);
   bodies.forEach(body => {
     if (body.label !== 'wall') {
@@ -494,6 +497,7 @@ function applyPhysicsSliders() {
       Body.set(body, 'friction', fricVal);
     }
   });
+  wakeBalls(); // 眠ったボールにも新しい重力を効かせる
 }
 
 // はぐるまギミックの生成
@@ -519,6 +523,8 @@ function createGear(x, y, isMotor = false) {
       mask: defaultCategory // ボールや壁（カテゴリ1）とのみ衝突する
     }
   });
+  // 歯車は眠らせない（モーターの角速度 0.038 はスリープ判定のしきい値を下回り、1 秒ほどで止まってしまう）
+  gearBody.sleepThreshold = -1;
 
   const pin = Constraint.create({
     pointA: { x: x, y: y },
@@ -534,6 +540,64 @@ function createGear(x, y, isMotor = false) {
   });
 
   Composite.add(engine.world, [gearBody, pin]);
+}
+
+// 背景ガイド（きらきら星の最初の3音目安）の描画
+function drawMelodyGuide(ctx) {
+  const container = document.getElementById('game-container');
+  const width = container.clientWidth;
+  const height = container.clientHeight;
+
+  const guidePoints = [
+    { x: width * 0.25, y: height * 0.35, note: 'ド' },
+    { x: width * 0.5, y: height * 0.45, note: 'ミ' },
+    { x: width * 0.75, y: height * 0.55, note: 'ソ' }
+  ];
+
+  ctx.strokeStyle = 'rgba(179, 157, 219, 0.4)';
+  ctx.lineWidth = 3;
+  ctx.setLineDash([8, 8]); // 点線
+
+  // ガイド線を引く
+  ctx.beginPath();
+  ctx.moveTo(width / 2, 40);
+  guidePoints.forEach(pt => {
+    ctx.lineTo(pt.x, pt.y);
+  });
+  ctx.stroke();
+  ctx.setLineDash([]); // リセット
+
+  // ガイドマークを描く
+  guidePoints.forEach(pt => {
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+    ctx.strokeStyle = 'rgba(179, 157, 219, 0.6)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(pt.x, pt.y, 28, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = '#7d7568';
+    ctx.font = "bold 12px 'M PLUS Rounded 1c', sans-serif";
+    ctx.fillText(`ここに [${pt.note}]`, pt.x, pt.y);
+  });
+}
+
+// ブロックを削除する（はぐるまはピン留めの Constraint も一緒に消す）
+function removeBlock(block) {
+  Composite.remove(engine.world, block);
+  if (block.blockType === 'gear' || block.blockType === 'motor-gear') {
+    Composite.allConstraints(engine.world).forEach(c => {
+      if (c.bodyB === block) Composite.remove(engine.world, c);
+    });
+  }
+  wakeBalls();
+}
+
+// 眠っているボールを起こす
+// （静的ブロックとの接触ではスリープが解除されないため、ブロックの削除・移動や重力変更の後に呼ぶ）
+function wakeBalls() {
+  activeBalls.forEach(ball => Sleeping.set(ball, false));
 }
 
 // ピアノ鍵盤を開く
@@ -616,6 +680,37 @@ function dropBall() {
   }
 
   Composite.add(engine.world, ball);
+}
+
+// きらきら星パーティクルエフェクト
+function createSparkles(x, y, color) {
+  const sparkleCount = 6;
+  const sparkles = [];
+
+  for (let i = 0; i < sparkleCount; i++) {
+    const angle = (i / sparkleCount) * Math.PI * 2 + Math.random() * 0.5;
+    const speed = 2.5 + Math.random() * 2.5;
+    const radius = 3 + Math.random() * 3;
+
+    const sparkle = Bodies.circle(x, y, radius, {
+      collisionFilter: {
+        category: particleCategory,
+        mask: 0
+      },
+      render: { fillStyle: color, opacity: 1.0 },
+      label: 'particle'
+    });
+
+    Body.setVelocity(sparkle, {
+      x: Math.cos(angle) * speed,
+      y: Math.sin(angle) * speed - 2.5
+    });
+
+    sparkle.lifespan = 30;
+    sparkles.push(sparkle);
+  }
+
+  Composite.add(engine.world, sparkles);
 }
 
 // 接触物体の継続的な物理判定（ベルトコンベア用）
@@ -807,6 +902,7 @@ function setupInteraction() {
     if (e.target.closest('#control-panel') || e.target.closest('#age-selector') || e.target.closest('#stage-selector') || e.target.closest('#physics-panel') || e.target.closest('#piano-keyboard')) return;
     
     e.preventDefault();
+    initAudio(); // iOS でバックグラウンド復帰後に suspended へ戻った AudioContext を再開する
     closePiano(); // Canvas上をタッチしたらピアノを一旦閉じる
 
     const coords = getEventCoords(e);
@@ -817,16 +913,9 @@ function setupInteraction() {
 
     // ① 長押し（600ms）による削除処理
     if (clickedBody) {
+      if (pressTimer) clearTimeout(pressTimer); // 前のタップのタイマーを取り残さない
       pressTimer = setTimeout(() => {
-        Composite.remove(engine.world, clickedBody);
-        
-        // ギアの場合はConstraint（ピン留め）も削除
-        if (clickedBody.blockType === 'gear' || clickedBody.blockType === 'motor-gear') {
-          const constraints = Composite.allConstraints(engine.world);
-          constraints.forEach(c => {
-            if (c.bodyB === clickedBody) Composite.remove(engine.world, c);
-          });
-        }
+        removeBlock(clickedBody);
         playTone(150, 0.2); // 消去音
         draggedBody = null;
       }, 600);
@@ -835,7 +924,8 @@ function setupInteraction() {
     // ② ダブルタップ検知（45度回転、またはドラム切替）
     const now = Date.now();
     if (clickedBody) {
-      if (now - lastTapTime < 280) {
+      // 同じブロックを続けてタップしたときだけダブルタップとみなす
+      if (clickedBody === lastTappedBody && now - lastTapTime < 280) {
         clearTimeout(pressTimer); // 長押しキャンセルの同期
         
         if (clickedBody.blockType === 'slope' || clickedBody.blockType === 'conveyor') {
@@ -855,15 +945,18 @@ function setupInteraction() {
         }
         else {
           // 回転や切替がない形状は即削除
-          Composite.remove(engine.world, clickedBody);
+          removeBlock(clickedBody);
           playTone(150, 0.2);
         }
-        
+
+        wakeBalls(); // 回転で支えが変わったボールを落とす
         draggedBody = null;
         lastTapTime = 0;
+        lastTappedBody = null;
         return;
       }
       lastTapTime = now;
+      lastTappedBody = clickedBody;
     }
 
     if (clickedBody) {
@@ -880,6 +973,7 @@ function setupInteraction() {
       // 何もない場所をタップ：新規配置
       createBlock(coords.x, coords.y);
       lastTapTime = now;
+      lastTappedBody = null;
     }
   }
 
@@ -893,6 +987,8 @@ function setupInteraction() {
       x: coords.x - dragOffset.x,
       y: coords.y - dragOffset.y
     });
+    wakeBalls(); // 動かしたブロックの上で眠っていたボールを落とす
+    lastTappedBody = null; // ドラッグ直後に掴み直してもダブルタップ扱いにしない
   }
 
   function handleEnd(e) {
@@ -1233,10 +1329,10 @@ function handleResize() {
   const width = container.clientWidth;
   const height = container.clientHeight;
 
-  render.canvas.width = width;
-  render.canvas.height = height;
+  // Render.world は毎フレーム pixelRatio 倍で描くので、canvas の実寸も pixelRatio 倍に合わせる
   render.options.width = width;
   render.options.height = height;
+  Render.setPixelRatio(render, window.devicePixelRatio || 1);
 
   const wallThickness = 60;
   const bodies = Composite.allBodies(engine.world);
