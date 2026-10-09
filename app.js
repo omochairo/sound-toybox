@@ -1,11 +1,12 @@
 // Matter.js モジュールのショートカット
-const { Engine, Render, Runner, Bodies, Composite, Body, Events, Vector, Constraint, Sleeping } = Matter;
+// （CDN の読み込みに失敗しても、ここで止まらずにスタート画面で案内を出せるようにする）
+const { Engine, Render, Bodies, Composite, Body, Events, Vector, Constraint, Sleeping } = window.Matter || {};
 
 // グローバル変数
 let engine;
 let render;
-let runner;
 let audioCtx = null;
+let masterBus = null;         // すべての音が通るマスター（音量の上限をかける）
 let currentMode = '3-5';      // '3-5', '6-8', '9-10'
 let currentStage = 1;         // 6-8歳パズルモード用
 let currentShape = 'circle';   // 選択中の配置オブジェクト
@@ -88,6 +89,10 @@ let dragOffset = { x: 0, y: 0 };
 let lastTapTime = 0;
 let lastTappedBody = null;
 let pressTimer = null;
+let pressStartCoords = null;    // 押し始めた位置（押していない間は null）
+let hasMovedSincePress = false; // 押してから DRAG_THRESHOLD_PX 以上動いたか
+let tappedNoteBody = null;      // 動かさずに離したらピアノを開くおんぷブロック
+const DRAG_THRESHOLD_PX = 8;
 let blockRadius = 35;
 let goalSensor = null;
 let startSpawner = null;
@@ -103,10 +108,44 @@ const gearCategory = 0x0004; // 歯車同士の物理衝突をオフにするた
 function initAudio() {
   if (!audioCtx) {
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+    // ボールが一斉に当たって音が重なっても耳に痛い音量にならないよう、コンプレッサーで頭を抑える
+    const compressor = audioCtx.createDynamicsCompressor();
+    compressor.threshold.value = -18;
+    compressor.knee.value = 12;
+    compressor.ratio.value = 8;
+    compressor.attack.value = 0.003;
+    compressor.release.value = 0.25;
+    compressor.connect(audioCtx.destination);
+
+    masterBus = audioCtx.createGain();
+    masterBus.gain.value = 0.8;
+    masterBus.connect(compressor);
   }
-  if (audioCtx.state === 'suspended') {
-    audioCtx.resume();
+  // iOS Safari は着信や画面ロックの後に 'interrupted' になることがあるため、'running' 以外はすべて再開を試みる
+  if (audioCtx.state !== 'running' && audioCtx.state !== 'closed') {
+    audioCtx.resume().catch(() => {});
   }
+}
+
+// ボールの衝突音を間引く（同じブロックへの連続ヒットと、短時間に鳴る数の上限）
+const HIT_COOLDOWN_MS = 60;
+const MAX_HITS_PER_WINDOW = 8;
+const HIT_WINDOW_MS = 100;
+let hitWindowStart = 0;
+let hitsInWindow = 0;
+
+function allowHitSound(target) {
+  const now = performance.now();
+  if (now - (target.lastHitSoundTime || 0) < HIT_COOLDOWN_MS) return false;
+  if (now - hitWindowStart > HIT_WINDOW_MS) {
+    hitWindowStart = now;
+    hitsInWindow = 0;
+  }
+  if (hitsInWindow >= MAX_HITS_PER_WINDOW) return false;
+  hitsInWindow++;
+  target.lastHitSoundTime = now;
+  return true;
 }
 
 // 鉄琴音再生
@@ -135,10 +174,10 @@ function playTone(freq, velocity = 0.5) {
   gain2.gain.exponentialRampToValueAtTime(0.0001, now + 0.05);
 
   osc1.connect(gain1);
-  gain1.connect(audioCtx.destination);
+  gain1.connect(masterBus);
   
   osc2.connect(gain2);
-  gain2.connect(audioCtx.destination);
+  gain2.connect(masterBus);
 
   osc1.start(now);
   osc1.stop(now + 0.8);
@@ -166,7 +205,7 @@ function playDrum(type, velocity = 0.5) {
     gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.2);
     
     osc.connect(gain);
-    gain.connect(audioCtx.destination);
+    gain.connect(masterBus);
     
     osc.start(now);
     osc.stop(now + 0.22);
@@ -195,7 +234,7 @@ function playDrum(type, velocity = 0.5) {
     
     noise.connect(filter);
     filter.connect(gain);
-    gain.connect(audioCtx.destination);
+    gain.connect(masterBus);
     
     noise.start(now);
     noise.stop(now + 0.18);
@@ -234,12 +273,10 @@ function initPhysics() {
 
   Render.run(render);
 
-  // タイムステップを固定化（isFixed: true）し、処理が重くなった際もすり抜けワープを完全に防止する
-  runner = Runner.create({
-    isFixed: true,
-    delta: 1000 / 60
-  });
-  Runner.run(runner, engine);
+  // タイムステップは 1/60 秒で固定（すり抜けワープ防止）。
+  // Matter.js 0.19 の Runner は isFixed だと 1 フレーム 1 ステップ進めるため、120Hz の画面では 2 倍速になる。
+  // 経過時間ぶんだけステップを進める自前のループで、画面のリフレッシュレートに関係なく同じ速さにする
+  requestAnimationFrame(physicsLoop);
 
   createWalls();
 
@@ -251,24 +288,48 @@ function initPhysics() {
   Events.on(engine, 'collisionActive', handleActivePhysics);
 }
 
+const WALL_LENGTH = 6000;
+const PHYSICS_STEP_MS = 1000 / 60;
+const MAX_STEPS_PER_FRAME = 4; // 処理落ちしたときに追いつこうとして余計に重くならないよう上限を設ける
+let physicsAccumulator = 0;
+let lastPhysicsTime = null;
+
+function physicsLoop(time) {
+  requestAnimationFrame(physicsLoop);
+  if (lastPhysicsTime === null) lastPhysicsTime = time;
+  // タブを裏に回して戻った直後などの長い空白は、まとめて進めずに捨てる
+  physicsAccumulator += Math.min(time - lastPhysicsTime, 100);
+  lastPhysicsTime = time;
+
+  let steps = 0;
+  while (physicsAccumulator >= PHYSICS_STEP_MS && steps < MAX_STEPS_PER_FRAME) {
+    Engine.update(engine, PHYSICS_STEP_MS);
+    physicsAccumulator -= PHYSICS_STEP_MS;
+    steps++;
+  }
+  if (steps === MAX_STEPS_PER_FRAME) physicsAccumulator = 0;
+}
+
 function createWalls() {
   const container = document.getElementById('game-container');
   const width = container.clientWidth;
   const height = container.clientHeight;
   const wallThickness = 60;
+  // 端末を回転して画面が縦に伸びても壁が足りなくならないよう、十分に長くしておく
+  const wallLength = WALL_LENGTH;
 
   const leftWall = Bodies.rectangle(
     -wallThickness / 2,
     height / 2,
     wallThickness,
-    height * 2,
+    wallLength,
     { isStatic: true, label: 'wall', render: { fillStyle: COLORS.walls } }
   );
   const rightWall = Bodies.rectangle(
     width + wallThickness / 2,
     height / 2,
     wallThickness,
-    height * 2,
+    wallLength,
     { isStatic: true, label: 'wall', render: { fillStyle: COLORS.walls } }
   );
 
@@ -300,7 +361,7 @@ function switchMode(mode) {
     document.getElementById('tools-3-5').classList.remove('hidden');
     currentShape = 'circle';
     updateActiveToolButton();
-    startBallTimer(1800); // 1.8秒ごと
+    startBallTimer(getBallInterval());
   } 
   else if (mode === '6-8') {
     document.getElementById('tools-6-8').classList.remove('hidden');
@@ -308,7 +369,7 @@ function switchMode(mode) {
     currentShape = 'slope';
     updateActiveToolButton();
     loadStage(currentStage);
-    startBallTimer(4000); // パズル用に4秒ごと
+    startBallTimer(getBallInterval());
   } 
   else if (mode === '9-10') {
     document.getElementById('tools-9-10').classList.remove('hidden');
@@ -327,9 +388,7 @@ function switchMode(mode) {
     applyPhysicsSliders();
     
     // テンポに合わせて自動落下タイマー開始
-    const bpm = parseInt(document.getElementById('slider-bpm').value);
-    const interval = (60 / bpm) * 1000 * 2; // 2拍ごと
-    startBallTimer(interval);
+    startBallTimer(getBallInterval());
   }
 
   playTone(329.63, 0.4); // 切替チャイム (ミ)
@@ -380,6 +439,17 @@ function updateActiveToolButton() {
   }
 }
 
+// モードごとのボール自動落下の間隔（ミリ秒）
+function getBallInterval() {
+  if (currentMode === '6-8') return 4000; // パズル用に4秒ごと
+  if (currentMode === '9-10') {
+    // テンポに合わせて 2 拍ごと
+    const bpm = parseInt(document.getElementById('slider-bpm').value);
+    return (60 / bpm) * 1000 * 2;
+  }
+  return 1800; // 1.8秒ごと
+}
+
 function startBallTimer(ms) {
   stopBallTimer();
   ballTimer = setInterval(dropBall, ms);
@@ -427,6 +497,7 @@ function loadStage(stageNum) {
     label: 'startSpawn',
     render: { fillStyle: '#b39ddb', chamfer: { radius: 5 } }
   });
+  startSpawner.stagePos = stage.start;
   Composite.add(engine.world, startSpawner);
 
   // ⭐ ゴール星
@@ -442,6 +513,7 @@ function loadStage(stageNum) {
       lineWidth: 3
     }
   });
+  goalSensor.stagePos = stage.goal;
   Composite.add(engine.world, goalSensor);
 
   // 固定障害物
@@ -464,6 +536,7 @@ function loadStage(stageNum) {
         render: { fillStyle: '#e2dcd0', chamfer: { radius: 8 } }
       });
     }
+    obstacle.stagePos = obs;
     Composite.add(engine.world, obstacle);
   });
 }
@@ -613,7 +686,8 @@ function openPiano(block, eventCoords) {
   let top = block.position.y - 125;
 
   // 画面左右のはみ出し防止
-  left = Math.max(10, Math.min(left, width - 330));
+  // （幅 340px 未満の画面では余白を削って、右端の鍵盤が切れないようにする）
+  left = Math.max(Math.min(10, (width - 320) / 2), Math.min(left, width - 330));
   top = Math.max(70, top); // 上部年齢タブなどと重ね合わせを回避
 
   keyboard.style.left = `${left}px`;
@@ -753,6 +827,14 @@ function handleCollisionStart(pair) {
 
     // ③ ブロック衝突発音
     if (target.label === 'block') {
+      // ジャンプ台（バウンサー）のインパルス適用（音を間引いても跳ね上げは毎回行う）
+      if (target.blockType === 'bouncer') {
+        Body.setVelocity(ball, { x: ball.velocity.x * 1.2, y: -9.5 });
+      }
+
+      // 音とエフェクトは間引く（ボールが溜まると同じ所で何度も当たり、音が割れて重くなるため）
+      if (!allowHitSound(target)) return;
+
       let freq;
       let color = target.render.fillStyle;
 
@@ -761,7 +843,7 @@ function handleCollisionStart(pair) {
         freq = note.freq;
         color = note.color;
         playTone(freq, Math.min(Vector.magnitude(ball.velocity) / 8, 1.0));
-      } 
+      }
       else if (target.blockType === 'drum') {
         // ドラムブロック：太鼓（bass）またはシンバル（snare）
         playDrum(target.drumType, Math.min(Vector.magnitude(ball.velocity) / 6, 1.0));
@@ -770,12 +852,10 @@ function handleCollisionStart(pair) {
         // 通常ブロック：X座標マッピング音
         const containerWidth = document.getElementById('game-container').clientWidth;
         const ratio = Math.min(Math.max(ball.position.x / containerWidth, 0), 1);
-        const toneIndex = Math.floor(ratio * TONES.length);
+        const toneIndex = Math.min(Math.floor(ratio * TONES.length), TONES.length - 1);
         freq = TONES[toneIndex];
-        
-        // ジャンプ台（バウンサー）のインパルス適用
+
         if (target.blockType === 'bouncer') {
-          Body.setVelocity(ball, { x: ball.velocity.x * 1.2, y: -9.5 });
           freq = 659.25; // ミの音
         }
         playTone(freq, Math.min(Vector.magnitude(ball.velocity) / 8, 1.0));
@@ -903,6 +983,7 @@ function setupInteraction() {
     
     e.preventDefault();
     initAudio(); // iOS でバックグラウンド復帰後に suspended へ戻った AudioContext を再開する
+    const pianoOpenedFor = selectedNoteBlock; // ピアノを開いていたおんぷを再タップしたら、閉じたままにする（トグル）
     closePiano(); // Canvas上をタッチしたらピアノを一旦閉じる
 
     const coords = getEventCoords(e);
@@ -911,13 +992,19 @@ function setupInteraction() {
     // ブロックボディをタップしたか検出
     const clickedBody = Matter.Query.point(bodies, coords).find(body => body.label === 'block');
 
+    pressStartCoords = coords;
+    hasMovedSincePress = false;
+    tappedNoteBody = null;
+
     // ① 長押し（600ms）による削除処理
     if (clickedBody) {
       if (pressTimer) clearTimeout(pressTimer); // 前のタップのタイマーを取り残さない
       pressTimer = setTimeout(() => {
+        pressTimer = null;
         removeBlock(clickedBody);
         playTone(150, 0.2); // 消去音
         draggedBody = null;
+        tappedNoteBody = null;
       }, 600);
     }
 
@@ -965,9 +1052,10 @@ function setupInteraction() {
         draggedBody = clickedBody;
         dragOffset.x = coords.x - clickedBody.position.x;
         dragOffset.y = coords.y - clickedBody.position.y;
-      } else if (clickedBody.blockType === 'note') {
-        // おんぷブロックのシングルタップ：ピアノキーボードを表示
-        openPiano(clickedBody, coords);
+      }
+      if (clickedBody.blockType === 'note') {
+        // おんぷブロックのシングルタップ：動かさずに指を離したらピアノキーボードを表示（handleEnd）
+        if (clickedBody !== pianoOpenedFor) tappedNoteBody = clickedBody;
       }
     } else {
       // 何もない場所をタップ：新規配置
@@ -978,11 +1066,29 @@ function setupInteraction() {
   }
 
   function handleMove(e) {
-    if (pressTimer) clearTimeout(pressTimer);
+    if (!pressStartCoords) return; // 押していない間のマウス移動は無視
+    const coords = getEventCoords(e);
+
+    // 指はじっとしていても少しずつ動くので、一定距離を超えるまではドラッグとみなさない
+    // （超えないうちに長押しを取り消すと、タッチ端末で長押し削除がほぼ成功しない）
+    if (!hasMovedSincePress) {
+      const dx = coords.x - pressStartCoords.x;
+      const dy = coords.y - pressStartCoords.y;
+      if (dx * dx + dy * dy < DRAG_THRESHOLD_PX * DRAG_THRESHOLD_PX) {
+        if (draggedBody) e.preventDefault();
+        return;
+      }
+      hasMovedSincePress = true;
+      tappedNoteBody = null;
+      if (pressTimer) {
+        clearTimeout(pressTimer);
+        pressTimer = null;
+      }
+    }
+
     if (!draggedBody) return;
     e.preventDefault();
 
-    const coords = getEventCoords(e);
     Body.setPosition(draggedBody, {
       x: coords.x - dragOffset.x,
       y: coords.y - dragOffset.y
@@ -992,7 +1098,15 @@ function setupInteraction() {
   }
 
   function handleEnd(e) {
-    if (pressTimer) clearTimeout(pressTimer);
+    if (pressTimer) {
+      clearTimeout(pressTimer);
+      pressTimer = null;
+    }
+    if (tappedNoteBody && e.type !== 'touchcancel' && Composite.allBodies(engine.world).includes(tappedNoteBody)) {
+      openPiano(tappedNoteBody);
+    }
+    tappedNoteBody = null;
+    pressStartCoords = null;
     draggedBody = null;
   }
 
@@ -1003,6 +1117,8 @@ function setupInteraction() {
   container.addEventListener('touchstart', handleStart, { passive: false });
   container.addEventListener('touchmove', handleMove, { passive: false });
   window.addEventListener('touchend', handleEnd);
+  // 着信やシステムジェスチャーでタッチが中断されたときも、長押しタイマーとドラッグ状態を片づける
+  window.addEventListener('touchcancel', handleEnd);
 }
 
 // 各種ギミックの物理定義と配置
@@ -1306,9 +1422,7 @@ function setupUI() {
   sliderBpm.addEventListener('input', () => {
     const bpm = parseInt(sliderBpm.value);
     document.getElementById('val-bpm').innerText = bpm;
-    // テンポに合わせて落下間隔をミリ秒へマッピング (2拍ごと)
-    const interval = (60 / bpm) * 1000 * 2;
-    startBallTimer(interval);
+    if (!document.hidden) startBallTimer(getBallInterval());
   });
 
   // 9-10歳：ガイド切り替え
@@ -1349,12 +1463,49 @@ function handleResize() {
     }
   });
 
-  if (currentMode === '6-8' && startSpawner && goalSensor) {
-    loadStage(currentStage);
+  // 6-8歳：ステージの部品だけを画面の比率に合わせて置き直す
+  // （loadStage で作り直すと、子どもが置いたブロックまで消えてしまう。スマホではアドレスバーの出入りでも resize が来る）
+  if (currentMode === '6-8') {
+    bodies.forEach((body) => {
+      if (body.stagePos) {
+        Body.setPosition(body, { x: width * body.stagePos.x, y: height * body.stagePos.y });
+      }
+    });
+    wakeBalls();
   }
+}
+
+// ページが裏に回っている間はボールを落とさない
+// （setInterval は裏でも動き続けるため、戻ったときにボールが溜まっていて一斉に鳴る）
+function handleVisibilityChange() {
+  if (!isGameActive) return;
+  if (document.hidden) {
+    stopBallTimer();
+  } else {
+    lastPhysicsTime = null;
+    startBallTimer(getBallInterval());
+  }
+}
+
+// Matter.js（CDN）の読み込みに失敗したときの案内
+function showLoadError() {
+  const subtitle = document.querySelector('#start-screen .subtitle');
+  const btnStart = document.getElementById('btn-start');
+  subtitle.innerText = 'よみこみに しっぱいしました。インターネットに つないでから もういちど ためしてね';
+  btnStart.innerText = 'もういちど よみこむ ↻';
+  btnStart.classList.remove('pulse-animation');
+  btnStart.addEventListener('click', () => location.reload());
 }
 
 // 起動処理
 document.addEventListener('DOMContentLoaded', () => {
+  if (!window.Matter) {
+    showLoadError();
+    return;
+  }
   setupUI();
+  document.addEventListener('visibilitychange', handleVisibilityChange);
+  // ボタン操作でも止まった AudioContext を再開できるようにする（iOS はユーザー操作の中でしか再開できない）
+  document.addEventListener('touchend', () => { if (audioCtx) initAudio(); }, true);
+  document.addEventListener('click', () => { if (audioCtx) initAudio(); }, true);
 });
