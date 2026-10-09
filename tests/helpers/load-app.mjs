@@ -71,7 +71,15 @@ function createFakeAudio() {
   return { FakeAudioContext, log };
 }
 
-export function loadApp({ withMatter = true, width = 1024, height = 768, storage } = {}) {
+// 本番（Edge）で実測した、上のタブ・ステージ選択の下端と、下のツールパネルの高さ（px）。
+// jsdom はレイアウトを計算しないので、ステージの配置範囲（getStageArea）を本番と揃えるために使う
+export function measuredLayout(width, height) {
+  if (height <= 550) return { ageBottom: 39, stageBottom: 97, panelHeight: 103 }; // スマホ横 812x375
+  if (width < 500) return { ageBottom: 60, stageBottom: 142, panelHeight: 143 };  // スマホ縦 375x812
+  return { ageBottom: 59, stageBottom: 126, panelHeight: 143 };                    // タブレット 1024x768（Web フォント読み込み後）
+}
+
+export function loadApp({ withMatter = true, width = 1024, height = 768, storage, layout } = {}) {
   const html = read('index.html')
     .replace(/<script[\s\S]*?<\/script>/g, '')
     .replace(/<link[^>]*>/g, '');
@@ -99,6 +107,16 @@ export function loadApp({ withMatter = true, width = 1024, height = 768, storage
   const container = document.getElementById('game-container');
   Object.defineProperty(container, 'clientWidth', { configurable: true, get: () => size.width });
   Object.defineProperty(container, 'clientHeight', { configurable: true, get: () => size.height });
+
+  const fixedLayout = layout;
+  const currentLayout = () => fixedLayout || measuredLayout(size.width, size.height);
+  const mockBottom = (id, key) => {
+    const el = document.getElementById(id);
+    el.getBoundingClientRect = () => ({ top: 0, left: 0, right: size.width, bottom: currentLayout()[key], width: size.width, height: currentLayout()[key] });
+  };
+  mockBottom('age-selector', 'ageBottom');
+  mockBottom('stage-selector', 'stageBottom');
+  Object.defineProperty(document.getElementById('control-panel'), 'offsetHeight', { configurable: true, get: () => currentLayout().panelHeight });
 
   let hidden = false;
   Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden });

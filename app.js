@@ -75,6 +75,7 @@ let STAGE_DATA = [
     ]
   },
   {
+    // かべごえ：ジャンプ台で かべを飛びこえる
     start: { x: 0.15, y: 0.25 },
     goal: { x: 0.85, y: 0.25 },
     obstacles: [
@@ -102,26 +103,32 @@ let STAGE_DATA = [
 
 // 6-8歳：クリアしたステージの記録（端末のブラウザにだけ保存する。使えない環境でも遊べるようにする）
 const PUZZLE_BALL_RADIUS = 14;
+const GOAL_RADIUS = 32;
 const CLEARED_STORAGE_KEY = 'sound-toybox:cleared-stages';
 
+let clearedStagesThisSession = []; // 保存できない環境（プライベートブラウズ等）でも、開いている間は覚えておく
+
 function loadClearedStages() {
+  let saved = [];
   try {
-    const saved = JSON.parse(localStorage.getItem(CLEARED_STORAGE_KEY) || '[]');
-    return Array.isArray(saved) ? saved.filter(n => Number.isInteger(n)) : [];
+    const parsed = JSON.parse(localStorage.getItem(CLEARED_STORAGE_KEY) || '[]');
+    if (Array.isArray(parsed)) saved = parsed.filter(n => Number.isInteger(n));
   } catch (e) {
-    return [];
+    // 読めないときは、この回の記録だけを使う
   }
+  return [...new Set([...saved, ...clearedStagesThisSession])];
 }
 
 function saveClearedStage(stageNum) {
+  if (!clearedStagesThisSession.includes(stageNum)) clearedStagesThisSession.push(stageNum);
   const cleared = loadClearedStages();
-  if (!cleared.includes(stageNum)) cleared.push(stageNum);
   try {
     localStorage.setItem(CLEARED_STORAGE_KEY, JSON.stringify(cleared));
   } catch (e) {
-    // プライベートブラウズ等で保存できなくても、この回の表示には反映する
+    // 保存できなくても、この回の表示には反映する
   }
   updateClearedMarks(cleared);
+  return cleared;
 }
 
 function updateClearedMarks(cleared = loadClearedStages()) {
@@ -541,7 +548,8 @@ function loadStage(stageNum) {
 
 // ステージを置ける範囲（上のタブ・ステージ選択と、下のツールパネルの間）
 // 画面全体の比率で置くと、スマホではゴールが下のパネルの裏に隠れてしまうため
-const STAGE_REFERENCE_HEIGHT = 520; // 障害物の大きさを決めたときの、置ける範囲の高さ（タブレット横）
+const STAGE_REFERENCE_WIDTH = 1024; // 障害物の大きさを決めたときの画面幅（タブレット横）
+const STAGE_REFERENCE_HEIGHT = 520; // 同じく、置ける範囲の高さ
 function getStageArea() {
   const container = document.getElementById('game-container');
   const height = container.clientHeight;
@@ -571,8 +579,10 @@ function addStageParts(stage) {
   const container = document.getElementById('game-container');
   const width = container.clientWidth;
   const area = getStageArea();
-  // 狭い画面（スマホ横向きなど）では障害物を縮めて、通り道が無くならないようにする
-  const scale = Math.min(1, (area.bottom - area.top) / STAGE_REFERENCE_HEIGHT);
+  // 狭い画面（スマホの縦・横）では障害物を縮めて、通り道が無くなったりゴールに重なったりしないようにする
+  const scaleX = Math.min(1, width / STAGE_REFERENCE_WIDTH);
+  const scaleY = Math.min(1, (area.bottom - area.top) / STAGE_REFERENCE_HEIGHT);
+  const MIN_OBSTACLE_THICKNESS = 14;
 
   // 🚀 スタート射出口
   const start = stagePoint(stage.start, width, area);
@@ -586,7 +596,8 @@ function addStageParts(stage) {
 
   // ⭐ ゴール星
   const goal = stagePoint(stage.goal, width, area);
-  goalSensor = Bodies.circle(goal.x, goal.y, 25, {
+  // 当たり判定は表示の⭐（34px）と同じくらいの大きさにする
+  goalSensor = Bodies.circle(goal.x, goal.y, GOAL_RADIUS, {
     isStatic: true,
     isSensor: true,
     label: 'goalSensor',
@@ -605,14 +616,16 @@ function addStageParts(stage) {
     const pos = stagePoint(obs, width, area);
 
     if (obs.type === 'triangle_obstacle') {
-      obstacle = Bodies.polygon(pos.x, pos.y, 3, (obs.w * scale) / 2, {
+      obstacle = Bodies.polygon(pos.x, pos.y, 3, (obs.w * Math.min(scaleX, scaleY)) / 2, {
         isStatic: true,
         label: 'obstacle',
         angle: Math.PI,
         render: { fillStyle: '#e2dcd0' }
       });
     } else {
-      obstacle = Bodies.rectangle(pos.x, pos.y, obs.w * scale, obs.h * scale, {
+      const w = Math.max(MIN_OBSTACLE_THICKNESS, obs.w * scaleX);
+      const h = Math.max(MIN_OBSTACLE_THICKNESS, obs.h * scaleY);
+      obstacle = Bodies.rectangle(pos.x, pos.y, w, h, {
         isStatic: true,
         label: 'obstacle',
         render: { fillStyle: '#e2dcd0', chamfer: { radius: 8 } }
@@ -625,8 +638,8 @@ function addStageParts(stage) {
 
 function handleStageClear() {
   if (document.getElementById('clear-modal').classList.contains('hidden')) {
-    saveClearedStage(currentStage);
-    const allCleared = STAGE_DATA.every((_, i) => loadClearedStages().includes(i + 1));
+    const cleared = saveClearedStage(currentStage);
+    const allCleared = STAGE_DATA.every((_, i) => cleared.includes(i + 1));
     document.querySelector('#clear-modal .clear-message').textContent = allCleared
       ? 'ぜんぶの ステージを クリアしたよ！ すごい！'
       : 'じょうずに ボールを はこべたね！';

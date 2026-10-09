@@ -334,6 +334,23 @@ test('最後のステージの次は 1 に戻り、全部クリアするとお�
   assert.equal(app.g('currentStage'), 1);
 });
 
+test('保存できない環境でも、開いている間はクリアした★が消えず、全部クリアも分かる', () => {
+  app = loadApp().start();
+  const storage = app.window.localStorage;
+  const proto = Object.getPrototypeOf(storage);
+  proto.setItem = () => { throw new Error('QuotaExceededError'); };
+  proto.getItem = () => { throw new Error('SecurityError'); };
+  app.g("switchMode('6-8'); stopBallTimer()");
+  const stageCount = app.g('STAGE_DATA.length');
+  for (let stage = 1; stage <= stageCount; stage++) {
+    app.g(`loadStage(${stage}); dropBall()`);
+    app.g('handleCollisionStart')({ bodyA: app.g('activeBalls[0]'), bodyB: app.g('goalSensor') });
+    app.document.getElementById('clear-modal').classList.add('hidden');
+  }
+  assert.equal(app.document.querySelectorAll('.stage-btn.cleared').length, stageCount);
+  assert.match(app.document.querySelector('#clear-modal .clear-message').textContent, /ぜんぶ/);
+});
+
 test('壊れた保存データがあっても起動できる', () => {
   app = loadApp({ storage: { 'sound-toybox:cleared-stages': '{broken' } }).start();
   assert.equal(app.g('loadClearedStages().length'), 0);
