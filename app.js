@@ -983,6 +983,7 @@ function setupInteraction() {
     
     e.preventDefault();
     initAudio(); // iOS でバックグラウンド復帰後に suspended へ戻った AudioContext を再開する
+    const pianoOpenedFor = selectedNoteBlock; // ピアノを開いていたおんぷを再タップしたら、閉じたままにする（トグル）
     closePiano(); // Canvas上をタッチしたらピアノを一旦閉じる
 
     const coords = getEventCoords(e);
@@ -1054,7 +1055,7 @@ function setupInteraction() {
       }
       if (clickedBody.blockType === 'note') {
         // おんぷブロックのシングルタップ：動かさずに指を離したらピアノキーボードを表示（handleEnd）
-        tappedNoteBody = clickedBody;
+        if (clickedBody !== pianoOpenedFor) tappedNoteBody = clickedBody;
       }
     } else {
       // 何もない場所をタップ：新規配置
@@ -1101,7 +1102,7 @@ function setupInteraction() {
       clearTimeout(pressTimer);
       pressTimer = null;
     }
-    if (tappedNoteBody && Composite.allBodies(engine.world).includes(tappedNoteBody)) {
+    if (tappedNoteBody && e.type !== 'touchcancel' && Composite.allBodies(engine.world).includes(tappedNoteBody)) {
       openPiano(tappedNoteBody);
     }
     tappedNoteBody = null;
@@ -1116,6 +1117,8 @@ function setupInteraction() {
   container.addEventListener('touchstart', handleStart, { passive: false });
   container.addEventListener('touchmove', handleMove, { passive: false });
   window.addEventListener('touchend', handleEnd);
+  // 着信やシステムジェスチャーでタッチが中断されたときも、長押しタイマーとドラッグ状態を片づける
+  window.addEventListener('touchcancel', handleEnd);
 }
 
 // 各種ギミックの物理定義と配置
