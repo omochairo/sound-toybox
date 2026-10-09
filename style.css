@@ -573,10 +573,10 @@ button:active {
 }
 
 .bouncer {
-  width: 18px;
-  height: 18px;
+  width: 26px;
+  height: 9px;
   background-color: #ffadad;
-  border-radius: 50%;
+  border-radius: 4px;
   border: 2px dashed white;
   box-shadow: 0 0 0 2px #ffadad;
 }
