@@ -3,31 +3,21 @@ import assert from 'node:assert/strict';
 import { loadApp } from './helpers/load-app.mjs';
 
 // 各ステージに「実際にゴールまで運べる置き方」があることを確かめる（1024x768、本番で実測したレイアウト）。
-// ジャンプ台は丸く、当たる位置で跳ねる向きが変わるため、物理の結果は 1px 未満の差でも分かれることがある。
-// そこで 1 つの解に頼らず、子どもが試しそうな「近い置き方」の候補のどれかでゴールできればよいとする。
-// 候補は物理シミュレーションの探索で解が見つかった置き方の周辺。ステージや物理の調整で解けなくなったら、ここが落ちる。
-// [形, 発射台からの x, 発射台からの y, 置いた後に足す角度]（さかみちは置いた時点で -π/8 傾いている）
-const range = (from, to, step) => Array.from({ length: Math.floor((to - from) / step) + 1 }, (_, i) => from + i * step);
-const conveyorRow = (count, dy) => Array.from({ length: count }, (_, i) => ['conveyor', -20 + i * 140, dy]);
-const jumpAfterRow = (count, dy) => range(40, 180, 20).flatMap((jx) => range(10, 60, 10).map((jy) =>
-  [...conveyorRow(count, dy), ['bouncer', -20 + (count - 1) * 140 + 70 + jx, dy + jy]]));
-
-const CANDIDATES = {
-  // ベルトを並べて、最後にジャンプ台
-  1: jumpAfterRow(3, 50),
-  // 1 本目を回して左へ、2 本目で右へ返す
-  2: range(120, 220, 20).map((by) => [['slope', -60, 60, Math.PI / 4], ['slope', 120, by]]),
-  // ベルト → ジャンプで壁越え → ベルト → ジャンプでゴール
-  3: range(400, 480, 20).flatMap((cx) => [80, 100].flatMap((cy) => range(40, 120, 20).flatMap((jx) => [0, 20, 40].map((jy) => [
-    ['conveyor', -20, 45], ['conveyor', 120, 45], ['bouncer', 290, 120], ['conveyor', cx, cy], ['bouncer', cx + 70 + jx, cy + jy]
-  ])))),
-  // さかみちを階段のように並べる
-  4: [80, 85].flatMap((dx) => [28, 32].flatMap((dy) => [8, 9].map((count) =>
-    Array.from({ length: count }, (_, i) => ['slope', -30 - i * dx, 45 + i * dy])))),
-  5: jumpAfterRow(4, 50)
+// 置き方は物理シミュレーションの探索で見つけたもの。子どもの置き方は数 px ずれるので、
+// 全部品を上下左右に 5px ずらしても解けることまで確かめる（ジャンプ台は跳ぶ向きが一定なので、ずれに強い）。
+// [形, 発射台からの x, 発射台からの y, 置いた後に足す角度]（さかみちは置いた時点で -π/8 傾いている。
+// ジャンプ台は π/4 足すと、右上へ跳ばす向きになる = 2 回タップ 1 回ぶん）
+const TILT = Math.PI / 4;
+const SOLUTIONS = {
+  1: [['conveyor', -20, 45], ['bouncer', 140, 80, TILT]],
+  2: [['slope', -60, 60, Math.PI / 4], ['slope', 120, 140]],
+  3: [['conveyor', -20, 45], ['conveyor', 120, 45], ['bouncer', 240, 80, TILT], ['bouncer', 440, 40, TILT]],
+  4: Array.from({ length: 10 }, (_, i) => ['slope', -30 - i * 70, 45 + i * 28]),
+  5: [['conveyor', -20, 45], ['conveyor', 120, 45], ['bouncer', 240, 80, TILT]]
 };
+const OFFSETS = [[0, 0], [-5, 0], [5, 0], [0, -5], [0, 5]];
 
-function playStage(stage, plan) {
+function playStage(stage, plan, [ox, oy] = [0, 0]) {
   const app = loadApp({ width: 1024, height: 768 }).start();
   try {
     app.g("switchMode('6-8'); stopBallTimer()");
@@ -36,7 +26,7 @@ function playStage(stage, plan) {
     app.g(`loadStage(${stage})`);
     const start = app.g('startSpawner').position;
     for (const [shape, dx, dy, angle = 0] of plan) {
-      app.g(`currentShape = '${shape}'; createBlock(${start.x + dx}, ${start.y + dy})`);
+      app.g(`currentShape = '${shape}'; createBlock(${start.x + dx + ox}, ${start.y + dy + oy})`);
       const block = app.blocks().filter((b) => b.blockType === shape).pop();
       app.g('Body').setAngle(block, block.angle + angle);
     }
@@ -60,19 +50,20 @@ test('6〜8 歳のボールは大きさが一定（同じ置き方なら毎回�
 });
 
 test('ブロックを置かなければ、どのステージもゴールに入らない', () => {
-  for (const stage of Object.keys(CANDIDATES)) {
+  for (const stage of Object.keys(SOLUTIONS)) {
     assert.equal(playStage(Number(stage), []), false, `ステージ ${stage}`);
   }
 });
 
-test('どのステージにも、ゴールまで運べる置き方がある', () => {
+test('どのステージにも、ゴールまで運べる置き方があり、置く位置が少しずれても解ける', () => {
   const app = loadApp();
   const stageCount = app.g('STAGE_DATA.length');
   app.close();
-  assert.equal(Object.keys(CANDIDATES).length, stageCount);
-  for (const [stage, plans] of Object.entries(CANDIDATES)) {
-    const solved = plans.filter((plan) => playStage(Number(stage), plan)).length;
-    assert.ok(solved > 0, `ステージ ${stage}: ${plans.length} 通りの置き方のどれでもゴールできない`);
+  assert.equal(Object.keys(SOLUTIONS).length, stageCount);
+  for (const [stage, plan] of Object.entries(SOLUTIONS)) {
+    for (const offset of OFFSETS) {
+      assert.equal(playStage(Number(stage), plan, offset), true, `ステージ ${stage} ずらし ${offset}`);
+    }
   }
 });
 

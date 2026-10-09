@@ -185,6 +185,48 @@ test('さかみちは 2 回タップで 45 度回る', () => {
   assert.ok(Math.abs(app.blocks()[0].angle - before - Math.PI / 4) < 1e-6);
 });
 
+test('ジャンプ台は、板のどこに当たっても同じ向き・同じ強さで跳ばす', () => {
+  app = loadApp().start();
+  app.g("switchMode('6-8'); stopBallTimer(); currentShape = 'bouncer'; createBlock(500, 400)");
+  const bouncer = app.blocks()[0];
+  const launch = app.g('getBouncerLaunchVelocity');
+  const Bodies = app.g('Bodies');
+  const results = [-40, -10, 0, 25, 40].map((dx) => {
+    const ball = Bodies.circle(500 + dx, 380, 14, { label: 'ball' });
+    app.g('Body').setVelocity(ball, { x: 0, y: 6 });
+    return launch(ball, bouncer);
+  });
+  for (const v of results) {
+    assert.ok(Math.abs(v.x - results[0].x) < 1e-9 && Math.abs(v.y - results[0].y) < 1e-9);
+  }
+  assert.ok(Math.abs(results[0].y + 9.5) < 1e-9, '水平な板はまっすぐ上へ');
+  // 2 回タップで 45 度回すと、右上へ跳ばす
+  app.g('Body').setAngle(bouncer, Math.PI / 4);
+  const ball = Bodies.circle(495, 395, 14, { label: 'ball' });
+  const tilted = launch(ball, bouncer);
+  assert.ok(tilted.x > 0 && tilted.y < 0);
+  // 下から当たったら下へ跳ね返す
+  app.g('Body').setAngle(bouncer, 0);
+  const under = Bodies.circle(500, 420, 14, { label: 'ball' });
+  assert.ok(launch(under, bouncer).y > 0);
+});
+
+test('ジャンプ台に落ちたボールは、物理計算のあとでも決めた速度で跳ぶ', () => {
+  app = loadApp().start();
+  app.g("switchMode('9-10'); stopBallTimer(); currentShape = 'bouncer'; createBlock(500, 400)");
+  app.g('dropBall()');
+  const ball = app.g('activeBalls[0]');
+  app.g('Body').setPosition(ball, { x: 500, y: 360 });
+  app.g('Body').setVelocity(ball, { x: 1, y: 5 });
+  let launched = null;
+  for (let i = 0; i < 30 && !launched; i++) {
+    app.step(1);
+    if (ball.velocity.y < -8) launched = { ...ball.velocity };
+  }
+  assert.ok(launched, '跳ね上がった');
+  assert.ok(launched.y < -9 && launched.y > -10, `上向きの速さ ${launched.y}`);
+});
+
 test('ボールをタップすると、はじけて消える（ブロックは置かれない）', () => {
   app = loadApp().start();
   app.g('dropBall()');

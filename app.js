@@ -345,6 +345,7 @@ function initPhysics() {
 
   Events.on(engine, 'beforeUpdate', updateLoop);
   Events.on(engine, 'collisionActive', handleActivePhysics);
+  Events.on(engine, 'afterUpdate', applyPendingLaunches);
 }
 
 const WALL_LENGTH = 6000;
@@ -944,6 +945,33 @@ function drawBlockFlashes(ctx, bodies) {
   });
 }
 
+// ジャンプ台で跳ねたあとの速度
+// ジャンプ台は平らな板で、板の面に垂直な向きへ必ず同じ強さで跳ね上げる（板を回すと、跳ぶ向きも変わる）。
+// 板に沿った向きの勢いは少し強めて残す。当たった位置や角度で跳ぶ向きが変わらないので、狙って置ける
+const BOUNCER_LAUNCH_SPEED = 9.5;
+const BOUNCER_TANGENT_BOOST = 1.2;
+function getBouncerLaunchVelocity(ball, bouncer) {
+  const tangent = { x: Math.cos(bouncer.angle), y: Math.sin(bouncer.angle) };
+  let normal = { x: Math.sin(bouncer.angle), y: -Math.cos(bouncer.angle) };
+  // ボールがいる側の面へ跳ね返す
+  if (Vector.dot(Vector.sub(ball.position, bouncer.position), normal) < 0) {
+    normal = Vector.neg(normal);
+  }
+  const along = Vector.dot(ball.velocity, tangent) * BOUNCER_TANGENT_BOOST;
+  return Vector.add(Vector.mult(normal, BOUNCER_LAUNCH_SPEED), Vector.mult(tangent, along));
+}
+
+// 跳ね上げは衝突の計算（めり込みの押し戻し・反発）が終わったあとに上書きする
+// （衝突の開始時に速度を入れても、そのあとの反発計算で向きが変わってしまうため）
+function applyPendingLaunches() {
+  activeBalls.forEach(ball => {
+    if (ball.pendingLaunch) {
+      Body.setVelocity(ball, ball.pendingLaunch);
+      ball.pendingLaunch = null;
+    }
+  });
+}
+
 // 接触物体の継続的な物理判定（ベルトコンベア用）
 function handleConveyorBeltPhysics(pair) {
   const bodyA = pair.bodyA;
@@ -984,9 +1012,9 @@ function handleCollisionStart(pair) {
 
     // ③ ブロック衝突発音
     if (target.label === 'block') {
-      // ジャンプ台（バウンサー）のインパルス適用（音を間引いても跳ね上げは毎回行う）
+      // ジャンプ台（バウンサー）の跳ね上げ（音を間引いても跳ね上げは毎回行う）
       if (target.blockType === 'bouncer') {
-        Body.setVelocity(ball, { x: ball.velocity.x * 1.2, y: -9.5 });
+        ball.pendingLaunch = getBouncerLaunchVelocity(ball, target);
       }
 
       // 音とエフェクトは間引く（ボールが溜まると同じ所で何度も当たり、音が割れて重くなるため）
@@ -1327,10 +1355,11 @@ function createBlock(x, y) {
       render: { fillStyle: COLORS.slope, chamfer: { radius: 6 } }
     });
   } else if (currentShape === 'bouncer') {
-    block = Bodies.circle(x, y, blockRadius - 5, {
+    // 平らな板（トランポリン）。2 回タップで 45 度ずつ回すと、跳ぶ向きを変えられる
+    block = Bodies.rectangle(x, y, 90, 20, {
       ...options,
       blockType: 'bouncer',
-      restitution: 1.6,
+      chamfer: { radius: 8 },
       render: {
         fillStyle: COLORS.bouncer,
         strokeStyle: '#ffffff',
@@ -1409,11 +1438,15 @@ function setupCustomRenderer() {
         ctx.fillText(body.drumType === 'bass' ? "🥁 ドン" : "🔔 シャン", body.position.x, body.position.y);
       }
 
-      // ③ ジャンプ台の★マーク
+      // ③ ジャンプ台の矢印（跳ぶ向き。板と一緒に回る）
       if (body.label === 'block' && body.blockType === 'bouncer') {
+        ctx.save();
+        ctx.translate(body.position.x, body.position.y);
+        ctx.rotate(body.angle);
         ctx.fillStyle = "white";
-        ctx.font = "bold 18px 'M PLUS Rounded 1c', sans-serif";
-        ctx.fillText("★", body.position.x, body.position.y);
+        ctx.font = "bold 13px 'M PLUS Rounded 1c', sans-serif";
+        ctx.fillText("▲ ▲ ▲", 0, 1);
+        ctx.restore();
       }
 
       // ④ ベルトコンベアの矢印
