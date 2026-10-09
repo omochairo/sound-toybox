@@ -80,8 +80,55 @@ let STAGE_DATA = [
     obstacles: [
       { x: 0.5, y: 0.6, w: 30, h: 420, type: 'obstacle' }
     ]
+  },
+  {
+    // かいだん：右上から左下へ。そのまま落とすと棚に乗って止まるので、さかみちを階段のように並べて運ぶ
+    start: { x: 0.85, y: 0.22 },
+    goal: { x: 0.15, y: 0.8 },
+    obstacles: [
+      { x: 0.85, y: 0.55, w: 220, h: 22, type: 'obstacle' },
+      { x: 0.45, y: 0.78, w: 260, h: 22, type: 'obstacle' }
+    ]
+  },
+  {
+    // ベルトとジャンプ台：かべの向こうの、少し低いゴールへ運ぶ
+    start: { x: 0.15, y: 0.22 },
+    goal: { x: 0.85, y: 0.5 },
+    obstacles: [
+      { x: 0.6, y: 0.85, w: 30, h: 300, type: 'obstacle' }
+    ]
   }
 ];
+
+// 6-8歳：クリアしたステージの記録（端末のブラウザにだけ保存する。使えない環境でも遊べるようにする）
+const PUZZLE_BALL_RADIUS = 14;
+const CLEARED_STORAGE_KEY = 'sound-toybox:cleared-stages';
+
+function loadClearedStages() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(CLEARED_STORAGE_KEY) || '[]');
+    return Array.isArray(saved) ? saved.filter(n => Number.isInteger(n)) : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+function saveClearedStage(stageNum) {
+  const cleared = loadClearedStages();
+  if (!cleared.includes(stageNum)) cleared.push(stageNum);
+  try {
+    localStorage.setItem(CLEARED_STORAGE_KEY, JSON.stringify(cleared));
+  } catch (e) {
+    // プライベートブラウズ等で保存できなくても、この回の表示には反映する
+  }
+  updateClearedMarks(cleared);
+}
+
+function updateClearedMarks(cleared = loadClearedStages()) {
+  document.querySelectorAll('.stage-btn').forEach(btn => {
+    btn.classList.toggle('cleared', cleared.includes(parseInt(btn.dataset.stage)));
+  });
+}
 
 // 操作用変数
 let draggedBody = null;
@@ -107,6 +154,10 @@ const gearCategory = 0x0004; // 歯車同士の物理衝突をオフにするた
 // -------------------------------------------------------------
 function initAudio() {
   if (!audioCtx) {
+    // iOS 17 以降: 消音スイッチが入っていても、このアプリの音は鳴らす（音を出して遊ぶおもちゃのため）
+    if (navigator.audioSession) {
+      try { navigator.audioSession.type = 'playback'; } catch (e) { /* 未対応の端末では何もしない */ }
+    }
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 
     // ボールが一斉に当たって音が重なっても耳に痛い音量にならないよう、コンプレッサーで頭を抑える
@@ -124,7 +175,8 @@ function initAudio() {
   }
   // iOS Safari は着信や画面ロックの後に 'interrupted' になることがあるため、'running' 以外はすべて再開を試みる
   if (audioCtx.state !== 'running' && audioCtx.state !== 'closed') {
-    audioCtx.resume().catch(() => {});
+    const resumed = audioCtx.resume();
+    if (resumed && resumed.catch) resumed.catch(() => {}); // 古い Safari の resume は Promise を返さない
   }
 }
 
@@ -137,7 +189,7 @@ let hitsInWindow = 0;
 
 function allowHitSound(target) {
   const now = performance.now();
-  if (now - (target.lastHitSoundTime || 0) < HIT_COOLDOWN_MS) return false;
+  if (target.lastHitSoundTime !== undefined && now - target.lastHitSoundTime < HIT_COOLDOWN_MS) return false;
   if (now - hitWindowStart > HIT_WINDOW_MS) {
     hitWindowStart = now;
     hitsInWindow = 0;
@@ -484,26 +536,57 @@ function loadStage(stageNum) {
     }
   });
 
+  addStageParts(STAGE_DATA[stageNum - 1]);
+}
+
+// ステージを置ける範囲（上のタブ・ステージ選択と、下のツールパネルの間）
+// 画面全体の比率で置くと、スマホではゴールが下のパネルの裏に隠れてしまうため
+const STAGE_REFERENCE_HEIGHT = 520; // 障害物の大きさを決めたときの、置ける範囲の高さ（タブレット横）
+function getStageArea() {
+  const container = document.getElementById('game-container');
+  const height = container.clientHeight;
+  const containerTop = container.getBoundingClientRect().top;
+  let top = 0;
+  ['age-selector', 'stage-selector'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el && !el.classList.contains('hidden')) {
+      top = Math.max(top, el.getBoundingClientRect().bottom - containerTop);
+    }
+  });
+  const panel = document.getElementById('control-panel');
+  const bottom = height - (panel ? panel.offsetHeight : 0);
+  // スタートの文字（上）とゴールの文字（下）が隠れないよう余白をとる
+  const area = { top: top + 30, bottom: bottom - 40 };
+  // レイアウトが取れないときは画面全体を使う
+  if (!(area.bottom - area.top > 80)) return { top: 0, bottom: height };
+  return area;
+}
+
+function stagePoint(pos, width, area) {
+  return { x: width * pos.x, y: area.top + (area.bottom - area.top) * pos.y };
+}
+
+// スタート・ゴール・障害物を置く（子どもが置いたブロックやボールには触らない）
+function addStageParts(stage) {
   const container = document.getElementById('game-container');
   const width = container.clientWidth;
-  const height = container.clientHeight;
-  const stage = STAGE_DATA[stageNum - 1];
+  const area = getStageArea();
+  // 狭い画面（スマホ横向きなど）では障害物を縮めて、通り道が無くならないようにする
+  const scale = Math.min(1, (area.bottom - area.top) / STAGE_REFERENCE_HEIGHT);
 
   // 🚀 スタート射出口
-  const startX = width * stage.start.x;
-  const startY = height * stage.start.y;
-  startSpawner = Bodies.rectangle(startX, startY, 65, 15, {
+  const start = stagePoint(stage.start, width, area);
+  startSpawner = Bodies.rectangle(start.x, start.y, 65, 15, {
     isStatic: true,
     label: 'startSpawn',
     render: { fillStyle: '#b39ddb', chamfer: { radius: 5 } }
   });
-  startSpawner.stagePos = stage.start;
+  startSpawner.isStagePart = true;
   Composite.add(engine.world, startSpawner);
 
   // ⭐ ゴール星
-  const goalX = width * stage.goal.x;
-  const goalY = height * stage.goal.y;
-  goalSensor = Bodies.circle(goalX, goalY, 25, {
+  const goal = stagePoint(stage.goal, width, area);
+  goalSensor = Bodies.circle(goal.x, goal.y, 25, {
     isStatic: true,
     isSensor: true,
     label: 'goalSensor',
@@ -513,36 +596,40 @@ function loadStage(stageNum) {
       lineWidth: 3
     }
   });
-  goalSensor.stagePos = stage.goal;
+  goalSensor.isStagePart = true;
   Composite.add(engine.world, goalSensor);
 
   // 固定障害物
   stage.obstacles.forEach(obs => {
     let obstacle;
-    const obsX = width * obs.x;
-    const obsY = height * obs.y;
+    const pos = stagePoint(obs, width, area);
 
     if (obs.type === 'triangle_obstacle') {
-      obstacle = Bodies.polygon(obsX, obsY, 3, obs.w / 2, {
+      obstacle = Bodies.polygon(pos.x, pos.y, 3, (obs.w * scale) / 2, {
         isStatic: true,
         label: 'obstacle',
         angle: Math.PI,
         render: { fillStyle: '#e2dcd0' }
       });
     } else {
-      obstacle = Bodies.rectangle(obsX, obsY, obs.w, obs.h, {
+      obstacle = Bodies.rectangle(pos.x, pos.y, obs.w * scale, obs.h * scale, {
         isStatic: true,
         label: 'obstacle',
         render: { fillStyle: '#e2dcd0', chamfer: { radius: 8 } }
       });
     }
-    obstacle.stagePos = obs;
+    obstacle.isStagePart = true;
     Composite.add(engine.world, obstacle);
   });
 }
 
 function handleStageClear() {
   if (document.getElementById('clear-modal').classList.contains('hidden')) {
+    saveClearedStage(currentStage);
+    const allCleared = STAGE_DATA.every((_, i) => loadClearedStages().includes(i + 1));
+    document.querySelector('#clear-modal .clear-message').textContent = allCleared
+      ? 'ぜんぶの ステージを クリアしたよ！ すごい！'
+      : 'じょうずに ボールを はこべたね！';
     document.getElementById('clear-modal').classList.remove('hidden');
     playTone(523.25, 0.5); // ド
     setTimeout(() => playTone(659.25, 0.5), 120); // ミ
@@ -723,13 +810,15 @@ function dropBall() {
 
   if (currentMode === '6-8' && startSpawner) {
     startX = startSpawner.position.x;
-    startY = startSpawner.position.y - 25;
+    // 発射台の真下から落とす（上に出すと、平らな発射台に乗ったまま止まってしまい、ゴールへ運べなかった）
+    startY = startSpawner.position.y + 25;
   } else {
     startX = width / 2 + (Math.random() - 0.5) * (width * 0.4);
     startY = -20;
   }
 
-  const radius = 12 + Math.random() * 5;
+  // パズル（6-8歳）は同じ置き方なら毎回同じ結果になるよう、ボールの大きさを固定する
+  const radius = currentMode === '6-8' ? PUZZLE_BALL_RADIUS : 12 + Math.random() * 5;
   const randomColor = COLORS.balls[Math.floor(Math.random() * COLORS.balls.length)];
 
   const ball = Bodies.circle(startX, startY, radius, {
@@ -785,6 +874,61 @@ function createSparkles(x, y, color) {
   }
 
   Composite.add(engine.world, sparkles);
+}
+
+// タップ位置の近くにあるボールを探す（ボールは小さいので、指の太さぶん当たり判定を広げる）
+const BALL_TAP_SLOP_PX = 12;
+function findBallNear(coords) {
+  let nearest = null;
+  let nearestDist = Infinity;
+  activeBalls.forEach(ball => {
+    const dist = Vector.magnitude(Vector.sub(ball.position, coords));
+    if (dist <= ball.circleRadius + BALL_TAP_SLOP_PX && dist < nearestDist) {
+      nearest = ball;
+      nearestDist = dist;
+    }
+  });
+  return nearest;
+}
+
+// ボールを はじけさせる
+function popBall(ball) {
+  Composite.remove(engine.world, ball);
+  const index = activeBalls.indexOf(ball);
+  if (index > -1) activeBalls.splice(index, 1);
+  createSparkles(ball.position.x, ball.position.y, ball.render.fillStyle);
+  createSparkles(ball.position.x, ball.position.y, '#ffd166');
+  // 高い音域のペンタトニックから選ぶので、どれを鳴らしても濁らない
+  const highTones = TONES.slice(-5);
+  playTone(highTones[Math.floor(Math.random() * highTones.length)], 0.5);
+}
+
+// ブロックを一瞬光らせる（当たった・回したことが目で分かるように）
+const BLOCK_FLASH_MS = 220;
+function flashBlock(block) {
+  block.flashStartTime = performance.now();
+}
+
+function drawBlockFlashes(ctx, bodies) {
+  const now = performance.now();
+  bodies.forEach(body => {
+    if (body.label !== 'block' || !body.flashStartTime) return;
+    const elapsed = now - body.flashStartTime;
+    if (elapsed >= BLOCK_FLASH_MS) {
+      body.flashStartTime = 0;
+      return;
+    }
+    const progress = elapsed / BLOCK_FLASH_MS;
+    const size = Math.max(body.bounds.max.x - body.bounds.min.x, body.bounds.max.y - body.bounds.min.y);
+    ctx.save();
+    ctx.globalAlpha = 1 - progress;
+    ctx.strokeStyle = body.render.fillStyle || COLORS.square;
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.arc(body.position.x, body.position.y, size / 2 + 4 + progress * 14, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  });
 }
 
 // 接触物体の継続的な物理判定（ベルトコンベア用）
@@ -865,6 +1009,7 @@ function handleCollisionStart(pair) {
       const contact = pair.activeContacts ? pair.activeContacts[0] : null;
       const contactPos = contact ? contact.vertex : ball.position;
       createSparkles(contactPos.x, contactPos.y, color);
+      flashBlock(target);
 
       // 振動エフェクト
       if (target.blockType !== 'gear' && target.blockType !== 'motor-gear') {
@@ -992,6 +1137,16 @@ function setupInteraction() {
     // ブロックボディをタップしたか検出
     const clickedBody = Matter.Query.point(bodies, coords).find(body => body.label === 'block');
 
+    // ボールをタップしたら、ぱちんと はじける（ブロックの上でなければ）
+    if (!clickedBody) {
+      const tappedBall = findBallNear(coords);
+      if (tappedBall) {
+        popBall(tappedBall);
+        lastTappedBody = null;
+        return;
+      }
+    }
+
     pressStartCoords = coords;
     hasMovedSincePress = false;
     tappedNoteBody = null;
@@ -1031,9 +1186,10 @@ function setupInteraction() {
           openPiano(clickedBody, coords);
         }
         else {
-          // 回転や切替がない形状は即削除
-          removeBlock(clickedBody);
-          playTone(150, 0.2);
+          // それ以外の形はくるっと回す（小さい子が連打しても、置いたものが消えてしまわないようにする。消すのは長押しか「けす」）
+          Body.setAngle(clickedBody, clickedBody.angle + Math.PI / 4);
+          flashBlock(clickedBody);
+          playTone(523.25, 0.4);
         }
 
         wakeBalls(); // 回転で支えが変わったボールを落とす
@@ -1293,6 +1449,8 @@ function setupCustomRenderer() {
       }
     });
 
+    drawBlockFlashes(ctx, bodies);
+
     ctx.restore();
   });
 }
@@ -1409,7 +1567,7 @@ function setupUI() {
   document.getElementById('btn-next-stage').addEventListener('click', () => {
     document.getElementById('clear-modal').classList.add('hidden');
     let nextStage = currentStage + 1;
-    if (nextStage > 3) nextStage = 1;
+    if (nextStage > STAGE_DATA.length) nextStage = 1;
     loadStage(nextStage);
   });
 
@@ -1463,14 +1621,13 @@ function handleResize() {
     }
   });
 
-  // 6-8歳：ステージの部品だけを画面の比率に合わせて置き直す
+  // 6-8歳：ステージの部品だけを今の画面に合わせて作り直す
   // （loadStage で作り直すと、子どもが置いたブロックまで消えてしまう。スマホではアドレスバーの出入りでも resize が来る）
-  if (currentMode === '6-8') {
+  if (currentMode === '6-8' && goalSensor) {
     bodies.forEach((body) => {
-      if (body.stagePos) {
-        Body.setPosition(body, { x: width * body.stagePos.x, y: height * body.stagePos.y });
-      }
+      if (body.isStagePart) Composite.remove(engine.world, body);
     });
+    addStageParts(STAGE_DATA[currentStage - 1]);
     wakeBalls();
   }
 }
@@ -1491,8 +1648,8 @@ function handleVisibilityChange() {
 function showLoadError() {
   const subtitle = document.querySelector('#start-screen .subtitle');
   const btnStart = document.getElementById('btn-start');
-  subtitle.innerText = 'よみこみに しっぱいしました。インターネットに つないでから もういちど ためしてね';
-  btnStart.innerText = 'もういちど よみこむ ↻';
+  subtitle.textContent = 'よみこみに しっぱいしました。インターネットに つないでから もういちど ためしてね';
+  btnStart.textContent = 'もういちど よみこむ ↻';
   btnStart.classList.remove('pulse-animation');
   btnStart.addEventListener('click', () => location.reload());
 }
@@ -1504,6 +1661,7 @@ document.addEventListener('DOMContentLoaded', () => {
     return;
   }
   setupUI();
+  updateClearedMarks();
   document.addEventListener('visibilitychange', handleVisibilityChange);
   // ボタン操作でも止まった AudioContext を再開できるようにする（iOS はユーザー操作の中でしか再開できない）
   document.addEventListener('touchend', () => { if (audioCtx) initAudio(); }, true);
