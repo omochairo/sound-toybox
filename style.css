@@ -157,7 +157,8 @@ canvas {
   border-bottom: 3px solid #e2dcd0;
   display: flex;
   justify-content: space-around;
-  padding: 8px 8px calc(8px + env(safe-area-inset-top));
+  /* ノッチ付き端末: 上と左右（横向き時）の安全領域を避ける */
+  padding: calc(8px + env(safe-area-inset-top)) calc(8px + env(safe-area-inset-right)) 8px calc(8px + env(safe-area-inset-left));
 }
 
 .age-tab {
@@ -231,6 +232,25 @@ canvas {
   color: #7d7568;
   font-size: 0.75rem;
   font-weight: 700;
+}
+
+.stage-label {
+  align-self: center;
+  white-space: nowrap;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #7d7568;
+}
+
+/* クリアしたステージには★を付ける */
+.stage-btn.cleared::after {
+  content: '★';
+  margin-left: 2px;
+  color: #ff9f43;
+}
+
+.stage-btn.active.cleared::after {
+  color: #ffd166;
 }
 
 .stage-btn.active {
@@ -422,7 +442,7 @@ canvas {
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   border-top: 3px solid #e2dcd0;
-  padding: 12px 12px calc(12px + env(safe-area-inset-bottom));
+  padding: 12px calc(12px + env(safe-area-inset-right)) calc(12px + env(safe-area-inset-bottom)) calc(12px + env(safe-area-inset-left));
   display: flex;
   justify-content: space-between;
   align-items: flex-end;
@@ -638,7 +658,7 @@ button:active {
 /* スマホ横向き等の表示最適化 */
 @media (max-height: 550px) {
   #age-selector {
-    padding: 3px;
+    padding: calc(3px + env(safe-area-inset-top)) calc(3px + env(safe-area-inset-right)) 3px calc(3px + env(safe-area-inset-left));
   }
   .age-tab {
     padding: 2px;
@@ -648,11 +668,11 @@ button:active {
     display: none;
   }
   #stage-selector {
-    top: 38px;
+    top: calc(38px + env(safe-area-inset-top));
     padding: 2px 6px;
   }
   #physics-panel {
-    top: 38px;
+    top: calc(38px + env(safe-area-inset-top));
     padding: 4px 8px;
   }
   .slider-group {
@@ -662,7 +682,7 @@ button:active {
     transform: scale(0.8); /* ピアノをスマホの横画面で少し小さくする */
   }
   #control-panel {
-    padding: 4px 10px calc(4px + env(safe-area-inset-bottom));
+    padding: 4px calc(10px + env(safe-area-inset-right)) calc(4px + env(safe-area-inset-bottom)) calc(10px + env(safe-area-inset-left));
   }
   .tool-btn, .action-btn {
     width: 46px;
@@ -681,5 +701,16 @@ button:active {
     border-left: 7px solid transparent;
     border-right: 7px solid transparent;
     border-bottom: 12px solid #4ea8de;
+  }
+}
+
+/* 動きを減らす設定の端末では、ボタンの点滅・跳ねるアニメーションを止める */
+@media (prefers-reduced-motion: reduce) {
+  .pulse-animation,
+  .bounce-animation {
+    animation: none;
+  }
+  .overlay {
+    transition: none;
   }
 }

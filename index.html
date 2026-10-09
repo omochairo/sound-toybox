@@ -10,8 +10,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@500;700&display=swap" rel="stylesheet">
-  <!-- Matter.js 2D物理エンジンライブラリ (CDN) -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+  <!-- Matter.js 2D物理エンジンライブラリ 0.19.0（MIT）。CDN が使えない環境でも動くよう同梱している -->
+  <script src="vendor/matter.min.js"></script>
 </head>
 <body>
 
@@ -67,9 +67,12 @@
 
     <!-- 6〜8歳モード用ステージセレクター（画面上部中央） -->
     <div id="stage-selector" class="mode-ui hidden">
-      <button class="stage-btn active" data-stage="1">ステージ 1</button>
-      <button class="stage-btn" data-stage="2">ステージ 2</button>
-      <button class="stage-btn" data-stage="3">ステージ 3</button>
+      <span class="stage-label">ステージ</span>
+      <button class="stage-btn active" data-stage="1">1</button>
+      <button class="stage-btn" data-stage="2">2</button>
+      <button class="stage-btn" data-stage="3">3</button>
+      <button class="stage-btn" data-stage="4">4</button>
+      <button class="stage-btn" data-stage="5">5</button>
     </div>
 
     <!-- 9〜10歳モード用物理・音楽調整パネル（画面上部右側） -->
