@@ -449,6 +449,8 @@ function switchMode(mode) {
   currentMode = mode;
   closePiano();
   cancelPress(); // 別の指でブロックを押さえたままタブを押しても、長押しタイマーとドラッグを残さない
+  hideRotateHint();
+  wasStageCramped = false;
 
   // タイマーの停止
   stopBallTimer();
@@ -476,6 +478,7 @@ function switchMode(mode) {
     currentShape = 'slope';
     updateActiveToolButton();
     loadStage(currentStage);
+    updateRotateHint(true);
     startBallTimer(getBallInterval());
   } 
   else if (mode === '9-10') {
@@ -599,17 +602,24 @@ function loadStage(stageNum) {
 // 画面全体の比率で置くと、スマホではゴールが下のパネルの裏に隠れてしまうため
 const STAGE_REFERENCE_WIDTH = 1024; // 障害物の大きさを決めたときの画面幅（タブレット横）
 const STAGE_REFERENCE_HEIGHT = 520; // 同じく、置ける範囲の高さ
-function getStageArea() {
+// 上に重なっている UI（年齢タブなど）のうち、見えているものの下端（game-container の上端から）
+function getTopUiBottom(ids) {
   const container = document.getElementById('game-container');
-  const height = container.clientHeight;
   const containerTop = container.getBoundingClientRect().top;
   let top = 0;
-  ['age-selector', 'stage-selector'].forEach(id => {
+  ids.forEach(id => {
     const el = document.getElementById(id);
     if (el && !el.classList.contains('hidden')) {
       top = Math.max(top, el.getBoundingClientRect().bottom - containerTop);
     }
   });
+  return top;
+}
+
+function getStageArea() {
+  const container = document.getElementById('game-container');
+  const height = container.clientHeight;
+  const top = getTopUiBottom(['age-selector', 'stage-selector']);
   const panel = document.getElementById('control-panel');
   const bottom = height - (panel ? panel.offsetHeight : 0);
   // スタートの文字（上）とゴールの文字（下）が隠れないよう余白をとる
@@ -617,6 +627,42 @@ function getStageArea() {
   // レイアウトが取れないときは画面全体を使う
   if (!(area.bottom - area.top > 80)) return { top: 0, bottom: height };
   return area;
+}
+
+// スマホの横画面のように、ステージを置ける範囲が低すぎるときは「たてに すると あそびやすいよ」と案内する
+// （遊べなくはしない。案内は少しのあいだだけ出して、ステージの邪魔をしない）
+const CRAMPED_STAGE_HEIGHT = 240; // これより低いと、障害物が縮みすぎて解き方が変わってしまう（横画面は 100〜160px）
+const ROTATE_HINT_MS = 4000;
+let rotateHintTimer = null;
+let wasStageCramped = false;
+
+function isStageCramped() {
+  const container = document.getElementById('game-container');
+  const area = getStageArea();
+  return container.clientWidth > container.clientHeight && area.bottom - area.top < CRAMPED_STAGE_HEIGHT;
+}
+
+function hideRotateHint() {
+  if (rotateHintTimer) {
+    clearTimeout(rotateHintTimer);
+    rotateHintTimer = null;
+  }
+  document.getElementById('rotate-hint').classList.add('hidden');
+}
+
+// force: 6-8歳に切り替えた直後は、前から横画面でも案内を出す（回転やリサイズでは、横になったときだけ出す）
+function updateRotateHint(force = false) {
+  const cramped = currentMode === '6-8' && isStageCramped();
+  const shouldShow = cramped && (force || !wasStageCramped);
+  wasStageCramped = cramped;
+  if (!cramped) {
+    hideRotateHint();
+    return;
+  }
+  if (!shouldShow) return;
+  hideRotateHint();
+  document.getElementById('rotate-hint').classList.remove('hidden');
+  rotateHintTimer = setTimeout(hideRotateHint, ROTATE_HINT_MS);
 }
 
 function stagePoint(pos, width, area) {
@@ -774,7 +820,7 @@ function createGear(x, y, isMotor = false) {
   Composite.add(engine.world, [gearBody, pin]);
 }
 
-// 背景ガイド（きらきら星の最初の3音目安）の描画
+// 背景ガイド（ドミソの目安。3 つとも違う音にして、ピアノで音を選ぶ練習にする）の描画
 function drawMelodyGuide(ctx) {
   const container = document.getElementById('game-container');
   const width = container.clientWidth;
@@ -897,6 +943,16 @@ function dropBall() {
 
   // パズル（6-8歳）は同じ置き方なら毎回同じ結果になるよう、ボールの大きさを固定する
   const radius = currentMode === '6-8' ? PUZZLE_BALL_RADIUS : 12 + Math.random() * 5;
+
+  // 重力が 0（むじゅうりょく）のときは、画面の上の外から出すと入ってこずに見えない所へたまるので、
+  // 上の UI と下のパネルのあいだに出して、ふわふわ浮かぶ様子を見せる
+  // （同じ高さに出すと重なって押し合い、画面の外へはじき出されるので、高さもばらつかせる）
+  if (currentMode !== '6-8' && engine.gravity.y <= 0) {
+    const top = getTopUiBottom(['age-selector', 'physics-panel']) + radius + 4;
+    const panel = document.getElementById('control-panel');
+    const bottom = container.clientHeight - (panel ? panel.offsetHeight : 0) - radius - 4;
+    startY = bottom > top ? top + Math.random() * (bottom - top) : top;
+  }
   const randomColor = COLORS.balls[Math.floor(Math.random() * COLORS.balls.length)];
 
   const ball = Bodies.circle(startX, startY, radius, {
@@ -1000,6 +1056,12 @@ function popBall(ball) {
   playTone(highTones[Math.floor(Math.random() * highTones.length)], 0.5);
 }
 
+// ブロックの色（はぐるまは複合ボディで、親の fillStyle は Matter.js が決めた色なので、部品の色を使う）
+function getBlockColor(block) {
+  const part = block.parts && block.parts.length > 1 ? block.parts[1] : block;
+  return part.render.fillStyle;
+}
+
 // ブロックを一瞬光らせる（当たった・回したことが目で分かるように）
 const BLOCK_FLASH_MS = 220;
 function flashBlock(block) {
@@ -1019,7 +1081,7 @@ function drawBlockFlashes(ctx, bodies) {
     const size = Math.max(body.bounds.max.x - body.bounds.min.x, body.bounds.max.y - body.bounds.min.y);
     ctx.save();
     ctx.globalAlpha = 1 - progress;
-    ctx.strokeStyle = body.render.fillStyle || COLORS.square;
+    ctx.strokeStyle = getBlockColor(body) || COLORS.square;
     ctx.lineWidth = 5;
     ctx.beginPath();
     ctx.arc(body.position.x, body.position.y, size / 2 + 4 + progress * 14, 0, Math.PI * 2);
@@ -1084,7 +1146,9 @@ function handleCollisionStart(pair) {
 
   if (isBallA || isBallB) {
     const ball = isBallA ? bodyA : bodyB;
-    const target = isBallA ? bodyB : bodyA;
+    // はぐるま・モーターギアは 2 本の棒を合わせた複合ボディで、衝突では部品が渡ってくるので、親のボディで判定する
+    const hitPart = isBallA ? bodyB : bodyA;
+    const target = hitPart.parent || hitPart;
 
     // ① 6-8歳パズル：ゴール到達判定
     if (currentMode === '6-8' && target === goalSensor) {
@@ -1106,7 +1170,7 @@ function handleCollisionStart(pair) {
       if (!allowHitSound(target)) return;
 
       let freq;
-      let color = target.render.fillStyle;
+      let color = getBlockColor(target);
 
       if (target.blockType === 'note') {
         const note = NOTE_TONES[target.toneIndex];
@@ -1426,6 +1490,8 @@ function setupInteraction() {
 }
 
 // 各種ギミックの物理定義と配置
+// （6-8歳のステージの障害物などに重なる位置にも、わざと置けるようにしている。
+//   ブロックも障害物も動かないので物理はおかしくならず、置けない理由が小さい子には分かりにくいため）
 function createBlock(x, y) {
   let block;
   const options = {
@@ -1789,6 +1855,7 @@ function handleResize() {
     });
     addStageParts(STAGE_DATA[currentStage - 1]);
     wakeBalls();
+    updateRotateHint();
   }
 }
 

@@ -1,6 +1,7 @@
 // Issue #15 の再現テスト
 // B（直せる不具合）は、直す前のコードで失敗し、直したあとで通ることを確かめたもの。
-// A（仕様の判断が要るもの）のうち再現できたものは、仕様が決まるまで test.skip で残す
+// A（仕様の判断が要るもの）は、PR #16 に書いた推奨のとおりに直し、そのふるまいを確かめる。
+// 推奨が「案内を出す」で、現象そのものは残すもの（A-1 の横画面のステージ 2）は、再現テストを test.skip で残す
 // （skip を外すと、いまのコードでは失敗する = 現象が起きていることを示す）。
 import { test, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
@@ -234,9 +235,52 @@ test('B-9 15fps 前後に重くなっても、物理は 1 秒あたり約 60 ス
 });
 
 // -------------------------------------------------------------
-// A（仕様の判断が要るもの）: 仕様が決まるまで skip
+// A（仕様の判断）: PR #16 の推奨のとおりに直したもの
 // -------------------------------------------------------------
-// A-1 スマホを横にすると、ステージ 2 が何も置かずにクリアになる
+const hintOf = (a) => a.document.getElementById('rotate-hint');
+const isHintShown = (a) => !hintOf(a).classList.contains('hidden');
+
+// A-1 推奨 1: 横画面で 6〜8 歳を開いたら「たてに すると あそびやすいよ」と案内する（遊べなくはしない）
+test('A-1 スマホ横画面で 6〜8 歳を開くと、たて向きの案内が少しのあいだ出る', async () => {
+  app = loadApp({ width: 812, height: 375 }).start();
+  app.g("switchMode('6-8'); stopBallTimer()");
+  assert.equal(isHintShown(app), true);
+  assert.match(hintOf(app).textContent, /たてに すると あそびやすいよ/);
+  // ステージは今までどおり置かれ、ブロックも置ける
+  assert.ok(app.g('goalSensor'));
+  app.tap(600, 200);
+  assert.equal(app.blocks().length, 1);
+  await sleep(4100);
+  assert.equal(isHintShown(app), false);
+});
+
+test('A-1 たて画面・タブレットでは、案内を出さない', () => {
+  for (const [width, height] of [[375, 812], [1024, 768], [768, 1024]]) {
+    app = loadApp({ width, height }).start();
+    app.g("switchMode('6-8'); stopBallTimer()");
+    assert.equal(isHintShown(app), false, `${width}x${height}`);
+    app.close();
+    app = null;
+  }
+});
+
+test('A-1 たてから横に回すと案内が出て、たてに戻すと消える。ほかのモードでは出ない', () => {
+  app = loadApp({ width: 375, height: 812 }).start();
+  app.g("switchMode('6-8'); stopBallTimer()");
+  assert.equal(isHintShown(app), false);
+  app.resize(812, 375);
+  assert.equal(isHintShown(app), true);
+  app.resize(375, 812);
+  assert.equal(isHintShown(app), false);
+  app.resize(812, 375);
+  app.g("switchMode('3-5'); stopBallTimer()");
+  assert.equal(isHintShown(app), false);
+  app.g("switchMode('9-10'); stopBallTimer()");
+  assert.equal(isHintShown(app), false);
+});
+
+// A-1 の現象そのもの（横画面ではステージ 2 が何も置かずにクリアになる）は、推奨 1 では残る。
+// ステージ配置を見直すとき（PR #16 の選択肢 2〜4）に skip を外す
 test.skip('A-1 スマホ横画面でも、ステージ 2 は何も置かずにはクリアできない', () => {
   for (const [width, height] of [[812, 375], [667, 375], [740, 360], [844, 390], [926, 428]]) {
     const a = loadApp({ width, height }).start();
@@ -256,15 +300,70 @@ test.skip('A-1 スマホ横画面でも、ステージ 2 は何も置かずに�
   }
 });
 
-// A-2 はぐるま・モーターギアに当たっても、音・きらきら・光が出ない
-test.skip('A-2 はぐるまにボールが当たると、光って音が鳴る', () => {
+// A-2 推奨 1: はぐるま・モーターギアにも、ほかのブロックと同じく音・きらきら・光を出す
+for (const shape of ['gear', 'motor-gear']) {
+  test(`A-2 ${shape === 'gear' ? 'はぐるま' : 'モーターギア'}にボールが当たると、はぐるまの色で光って、音が鳴る`, () => {
+    app = loadApp().start();
+    app.g(`switchMode('9-10'); stopBallTimer(); currentShape = '${shape}'; createBlock(500, 300)`);
+    const gear = app.blocks()[0];
+    const gearColor = gear.parts[1].render.fillStyle;
+    app.g('dropBall()');
+    app.g('Body').setPosition(app.g('activeBalls[0]'), { x: 530, y: 200 });
+    const before = app.audio.frequencies.length;
+    for (let i = 0; i < 60 && !gear.flashStartTime; i++) app.step(1);
+    assert.ok(gear.flashStartTime > 0, '光る');
+    assert.ok(app.audio.frequencies.length > before, '音が鳴る');
+    const sparkles = app.bodies((b) => b.label === 'particle');
+    assert.ok(sparkles.length > 0, 'きらきらが出る');
+    assert.ok(sparkles.every((p) => p.render.fillStyle === gearColor), 'きらきらは はぐるまの色');
+    assert.equal(app.g('getBlockColor')(gear), gearColor);
+  });
+}
+
+// A-3 推奨 1: 重力 0 のときは、ボールを画面の中（上の UI のすぐ下）から出す
+test('A-3 重力 0 では、ボールが画面の中に出て、見える所に浮かぶ', () => {
+  for (const mode of ['9-10', '3-5']) {
+    app = loadApp({ width: 375, height: 812 }).start();
+    app.g(`switchMode('9-10'); stopBallTimer()`);
+    setSlider(app, 'slider-gravity', 0);
+    if (mode === '3-5') app.g("currentMode = '3-5'"); // 3〜5 歳は重力を変えられないが、0 なら同じに扱う
+    const top = app.g("getTopUiBottom(['age-selector', 'physics-panel'])");
+    const bottom = 812 - app.document.getElementById('control-panel').offsetHeight;
+    for (let i = 0; i < 20; i++) app.g('dropBall()');
+    // 出した位置: 上の UI と下のパネルのあいだ
+    for (const ball of app.g('activeBalls')) {
+      const r = ball.circleRadius;
+      assert.ok(ball.position.y - r >= top && ball.position.y + r <= bottom, `${mode}: 出した高さ ${ball.position.y}（${top}〜${bottom} の中）`);
+    }
+    // 10 秒たっても、画面の外へ出ていったボールは無い
+    app.step(600);
+    const outside = app.g('activeBalls').filter((b) => b.position.y + b.circleRadius < 0 || b.position.y - b.circleRadius > 812);
+    assert.equal(outside.length, 0, `${mode}: 画面の外 ${outside.length} 個`);
+    app.close();
+    app = null;
+  }
+});
+
+test('A-3 重力があるときは、今までどおり画面の上の外から落とす', () => {
   app = loadApp().start();
-  app.g("switchMode('9-10'); stopBallTimer(); currentShape = 'gear'; createBlock(500, 300)");
-  const gear = app.blocks()[0];
+  app.g("switchMode('9-10'); stopBallTimer()");
   app.g('dropBall()');
-  app.g('Body').setPosition(app.g('activeBalls[0]'), { x: 530, y: 200 });
-  const before = app.audio.frequencies.length;
-  for (let i = 0; i < 60 && !gear.flashStartTime; i++) app.step(1);
-  assert.ok(gear.flashStartTime > 0, '光る');
-  assert.ok(app.audio.frequencies.length > before, '音が鳴る');
+  assert.equal(app.g('activeBalls[0]').position.y, -20);
+});
+
+// A-4 推奨 1: ガイドはドミソのまま（コメントだけ直した）
+test('A-4 メロディガイドは ド・ミ・ソ のまま', () => {
+  const src = fs.readFileSync(new URL('../app.js', import.meta.url), 'utf8');
+  const guide = src.slice(src.indexOf('function drawMelodyGuide'), src.indexOf('ctx.strokeStyle', src.indexOf('function drawMelodyGuide')));
+  assert.deepEqual([...guide.matchAll(/note: '(.+?)'/g)].map((m) => m[1]), ['ド', 'ミ', 'ソ']);
+  assert.doesNotMatch(src, /きらきら星の最初の3音/);
+});
+
+// A-5 推奨 1: 6〜8 歳で障害物の上にも置ける（今のまま許す）
+test('A-5 6〜8 歳で、障害物に重なる位置にもブロックを置ける', () => {
+  app = loadApp().start();
+  app.g("switchMode('6-8'); stopBallTimer(); loadStage(1)");
+  const obstacle = app.bodies((b) => b.label === 'obstacle')[0];
+  app.g(`createBlock(${obstacle.position.x}, ${obstacle.position.y})`);
+  assert.equal(app.blocks().length, 1);
 });

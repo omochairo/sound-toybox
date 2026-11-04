@@ -265,6 +265,25 @@ canvas {
   color: white;
 }
 
+/* 6〜8歳：横画面の案内（タッチの邪魔をしない） */
+#rotate-hint {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 12;
+  pointer-events: none;
+  white-space: nowrap;
+  background: rgba(255, 255, 255, 0.9);
+  padding: 8px 16px;
+  border-radius: 20px;
+  border: 2px solid #e2dcd0;
+  color: #7d7568;
+  font-size: 0.8rem;
+  font-weight: 700;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.03);
+}
+
 /* 9〜10歳：物理調整パネル */
 #physics-panel {
   position: absolute;
