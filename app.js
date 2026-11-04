@@ -853,6 +853,7 @@ function dropBall() {
     // すでに画面外で消滅していないか確認して物理世界から削除
     if (Composite.allBodies(engine.world).includes(oldestBall)) {
       Composite.remove(engine.world, oldestBall);
+      wakeBallsTouching(oldestBall);
     }
   }
 
@@ -905,11 +906,27 @@ function findBallNear(coords) {
   return nearest;
 }
 
+// 消したボールに触れて眠っていたボールを起こす
+// （眠ったボールは、支えのボールが消えても自分では起きず、宙に浮いたままになる。
+//   全部を起こすと 120 個たまったときに毎回すべて起きてしまうので、触れていたものだけ起こす。
+//   起きたボールが動けば、その上で眠っているボールは Matter.js が衝突で起こしてくれる）
+const BALL_WAKE_MARGIN_PX = 4;
+function wakeBallsTouching(removedBall) {
+  activeBalls.forEach(ball => {
+    if (!ball.isSleeping) return;
+    const dist = Vector.magnitude(Vector.sub(ball.position, removedBall.position));
+    if (dist <= ball.circleRadius + removedBall.circleRadius + BALL_WAKE_MARGIN_PX) {
+      Sleeping.set(ball, false);
+    }
+  });
+}
+
 // ボールを はじけさせる
 function popBall(ball) {
   Composite.remove(engine.world, ball);
   const index = activeBalls.indexOf(ball);
   if (index > -1) activeBalls.splice(index, 1);
+  wakeBallsTouching(ball);
   createSparkles(ball.position.x, ball.position.y, ball.render.fillStyle);
   createSparkles(ball.position.x, ball.position.y, '#ffd166');
   // 高い音域のペンタトニックから選ぶので、どれを鳴らしても濁らない
@@ -985,7 +1002,9 @@ function handleConveyorBeltPhysics(pair) {
 
     if (block.blockType === 'conveyor') {
       // 搬送対象をボールのみに限定し、速度を上書き
-      Body.setVelocity(ball, { x: 3.5, y: ball.velocity.y });
+      // 2 回タップで回して矢印（➔）が左を向いたら、左へ運ぶ（真上・真下向きのときは今までどおり右）
+      const direction = Math.cos(block.angle) < -1e-6 ? -1 : 1;
+      Body.setVelocity(ball, { x: 3.5 * direction, y: ball.velocity.y });
     }
   }
 }
