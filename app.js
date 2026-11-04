@@ -159,32 +159,56 @@ const gearCategory = 0x0004; // 歯車同士の物理衝突をオフにするた
 // -------------------------------------------------------------
 // 1. サウンドシステム（Web Audio API & ドラムシンセサイザー）
 // -------------------------------------------------------------
+// 止まった AudioContext に再開を頼んだ直後だけは、音を予約してよい（触った音は再開したときに鳴らす）
+const RESUME_GRACE_MS = 500;
+let lastResumeRequestTime = -Infinity;
+
 function initAudio() {
   if (!audioCtx) {
-    // iOS 17 以降: 消音スイッチが入っていても、このアプリの音は鳴らす（音を出して遊ぶおもちゃのため）
-    if (navigator.audioSession) {
-      try { navigator.audioSession.type = 'playback'; } catch (e) { /* 未対応の端末では何もしない */ }
+    // Web Audio が無い・作れない環境でも、音なしで遊べるようにする（ここで例外にするとスタートできなくなる）
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) return;
+    try {
+      // iOS 17 以降: 消音スイッチが入っていても、このアプリの音は鳴らす（音を出して遊ぶおもちゃのため）
+      if (navigator.audioSession) {
+        try { navigator.audioSession.type = 'playback'; } catch (e) { /* 未対応の端末では何もしない */ }
+      }
+      audioCtx = new AudioContextClass();
+
+      // ボールが一斉に当たって音が重なっても耳に痛い音量にならないよう、コンプレッサーで頭を抑える
+      const compressor = audioCtx.createDynamicsCompressor();
+      compressor.threshold.value = -18;
+      compressor.knee.value = 12;
+      compressor.ratio.value = 8;
+      compressor.attack.value = 0.003;
+      compressor.release.value = 0.25;
+      compressor.connect(audioCtx.destination);
+
+      masterBus = audioCtx.createGain();
+      masterBus.gain.value = 0.8;
+      masterBus.connect(compressor);
+    } catch (e) {
+      audioCtx = null;
+      masterBus = null;
+      return;
     }
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-
-    // ボールが一斉に当たって音が重なっても耳に痛い音量にならないよう、コンプレッサーで頭を抑える
-    const compressor = audioCtx.createDynamicsCompressor();
-    compressor.threshold.value = -18;
-    compressor.knee.value = 12;
-    compressor.ratio.value = 8;
-    compressor.attack.value = 0.003;
-    compressor.release.value = 0.25;
-    compressor.connect(audioCtx.destination);
-
-    masterBus = audioCtx.createGain();
-    masterBus.gain.value = 0.8;
-    masterBus.connect(compressor);
   }
   // iOS Safari は着信や画面ロックの後に 'interrupted' になることがあるため、'running' 以外はすべて再開を試みる
   if (audioCtx.state !== 'running' && audioCtx.state !== 'closed') {
+    lastResumeRequestTime = performance.now();
     const resumed = audioCtx.resume();
     if (resumed && resumed.catch) resumed.catch(() => {}); // 古い Safari の resume は Promise を返さない
   }
+}
+
+// 今、音を予約してよいか
+// （止まっている AudioContext は currentTime も止まるので、その間に予約した音は再開した瞬間に全部まとめて鳴ってしまう）
+function canScheduleSound() {
+  if (!audioCtx || !masterBus) return false;
+  const state = audioCtx.state;
+  if (!state || state === 'running') return true; // state の無い古い実装は今までどおり鳴らす
+  if (state === 'closed') return false;
+  return performance.now() - lastResumeRequestTime < RESUME_GRACE_MS;
 }
 
 // ボールの衝突音を間引く（同じブロックへの連続ヒットと、短時間に鳴る数の上限）
@@ -209,7 +233,7 @@ function allowHitSound(target) {
 
 // 鉄琴音再生
 function playTone(freq, velocity = 0.5) {
-  if (!audioCtx) return;
+  if (!canScheduleSound()) return;
 
   const now = audioCtx.currentTime;
   const osc1 = audioCtx.createOscillator();
@@ -247,7 +271,7 @@ function playTone(freq, velocity = 0.5) {
 
 // 打楽器（ドラム）音再生
 function playDrum(type, velocity = 0.5) {
-  if (!audioCtx) return;
+  if (!canScheduleSound()) return;
   const now = audioCtx.currentTime;
 
   if (type === 'bass') {
