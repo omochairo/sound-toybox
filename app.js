@@ -146,7 +146,20 @@ let pressTimer = null;
 let pressStartCoords = null;    // 押し始めた位置（押していない間は null）
 let hasMovedSincePress = false; // 押してから DRAG_THRESHOLD_PX 以上動いたか
 let tappedNoteBody = null;      // 動かさずに離したらピアノを開くおんぷブロック
+let activeTouchId = null;       // いま押している指の identifier（マウスのときは null）
 const DRAG_THRESHOLD_PX = 8;
+
+// 押している状態（長押しタイマー・ドラッグ・おんぷのタップ）を片づける
+function cancelPress() {
+  if (pressTimer) {
+    clearTimeout(pressTimer);
+    pressTimer = null;
+  }
+  tappedNoteBody = null;
+  pressStartCoords = null;
+  draggedBody = null;
+  activeTouchId = null;
+}
 let blockRadius = 35;
 let goalSensor = null;
 let startSpawner = null;
@@ -1188,34 +1201,47 @@ function updateLoop() {
 function setupInteraction() {
   const container = document.getElementById('game-container');
 
-  function getEventCoords(e) {
+  // point: タッチなら対象の指（Touch）、マウスなら event そのもの
+  function getEventCoords(point) {
     const rect = container.getBoundingClientRect();
-    let clientX, clientY;
-
-    if (e.touches && e.touches.length > 0) {
-      clientX = e.touches[0].clientX;
-      clientY = e.touches[0].clientY;
-    } else {
-      clientX = e.clientX;
-      clientY = e.clientY;
-    }
-
     return {
-      x: clientX - rect.left,
-      y: clientY - rect.top
+      x: point.clientX - rect.left,
+      y: point.clientY - rect.top
     };
+  }
+
+  function findTouch(list, id) {
+    if (!list) return null;
+    for (let i = 0; i < list.length; i++) {
+      if (list[i].identifier === id) return list[i];
+    }
+    return null;
   }
 
   function handleStart(e) {
     // UIパーツ上でのタッチは無効化
     if (e.target.closest('#control-panel') || e.target.closest('#age-selector') || e.target.closest('#stage-selector') || e.target.closest('#physics-panel') || e.target.closest('#piano-keyboard')) return;
     
-    e.preventDefault();
+    e.preventDefault(); // 2 本目以降の指も含め、ピンチ拡大やスクロールをさせない
+    if (e.type === 'mousedown' && e.button !== 0) return; // 右クリック・中クリックでは置かない
+
+    // マルチタッチ：押している指があるあいだは、ほかの指は無視する
+    // （touches[0] を読むと 2 本目の指が 1 本目の位置を押したことになり、2 回タップの回転や長押し削除が誤って起き、
+    //   2 本目を離すと 1 本目のドラッグまで切れていた）
+    let touch = null;
+    if (e.changedTouches) {
+      touch = e.changedTouches[0];
+      if (activeTouchId !== null) {
+        if (findTouch(e.touches, activeTouchId)) return;
+        cancelPress(); // 指が離れたのを取りこぼしていたら、片づけてから受け付ける
+      }
+    }
+
     initAudio(); // iOS でバックグラウンド復帰後に suspended へ戻った AudioContext を再開する
     const pianoOpenedFor = selectedNoteBlock; // ピアノを開いていたおんぷを再タップしたら、閉じたままにする（トグル）
     closePiano(); // Canvas上をタッチしたらピアノを一旦閉じる
 
-    const coords = getEventCoords(e);
+    const coords = getEventCoords(touch || e);
     const bodies = Composite.allBodies(engine.world);
 
     // ブロックボディをタップしたか検出
@@ -1234,6 +1260,7 @@ function setupInteraction() {
     pressStartCoords = coords;
     hasMovedSincePress = false;
     tappedNoteBody = null;
+    activeTouchId = touch ? touch.identifier : null;
 
     // ① 長押し（600ms）による削除処理
     if (clickedBody) {
@@ -1307,7 +1334,12 @@ function setupInteraction() {
 
   function handleMove(e) {
     if (!pressStartCoords) return; // 押していない間のマウス移動は無視
-    const coords = getEventCoords(e);
+    let point = e;
+    if (e.touches) {
+      point = activeTouchId !== null ? findTouch(e.touches, activeTouchId) : e.touches[0];
+      if (!point) return;
+    }
+    const coords = getEventCoords(point);
 
     // 指はじっとしていても少しずつ動くので、一定距離を超えるまではドラッグとみなさない
     // （超えないうちに長押しを取り消すと、タッチ端末で長押し削除がほぼ成功しない）
@@ -1338,6 +1370,8 @@ function setupInteraction() {
   }
 
   function handleEnd(e) {
+    // 押している指とは別の指（UI ボタンを押した指など）が離れただけなら、押下を続ける
+    if (e.changedTouches && activeTouchId !== null && !findTouch(e.changedTouches, activeTouchId)) return;
     if (pressTimer) {
       clearTimeout(pressTimer);
       pressTimer = null;
@@ -1345,9 +1379,7 @@ function setupInteraction() {
     if (tappedNoteBody && e.type !== 'touchcancel' && Composite.allBodies(engine.world).includes(tappedNoteBody)) {
       openPiano(tappedNoteBody);
     }
-    tappedNoteBody = null;
-    pressStartCoords = null;
-    draggedBody = null;
+    cancelPress();
   }
 
   container.addEventListener('mousedown', handleStart);
@@ -1359,6 +1391,8 @@ function setupInteraction() {
   window.addEventListener('touchend', handleEnd);
   // 着信やシステムジェスチャーでタッチが中断されたときも、長押しタイマーとドラッグ状態を片づける
   window.addEventListener('touchcancel', handleEnd);
+  // 右クリックやタッチの長押しで、ブラウザのメニューを出さない
+  container.addEventListener('contextmenu', (e) => e.preventDefault());
 }
 
 // 各種ギミックの物理定義と配置
@@ -1710,6 +1744,8 @@ function handleResize() {
     }
   });
 
+  keepBlocksOnScreen(width, height);
+
   // 6-8歳：ステージの部品だけを今の画面に合わせて作り直す
   // （loadStage で作り直すと、子どもが置いたブロックまで消えてしまう。スマホではアドレスバーの出入りでも resize が来る）
   if (currentMode === '6-8' && goalSensor) {
@@ -1721,12 +1757,45 @@ function handleResize() {
   }
 }
 
+// 画面を回す・ウィンドウを狭めるなどで見えない所へ出たブロックを、画面（下のパネルより上）の中へ戻す
+// （はみ出したブロックは触れないので、「けす」以外で消せなくなっていた）
+function keepBlocksOnScreen(width, height) {
+  const panel = document.getElementById('control-panel');
+  const panelTop = height - (panel ? panel.offsetHeight : 0);
+  const bottom = panelTop > height / 2 ? panelTop : height; // パネルの高さが取れない・大きすぎるときは画面の下端
+  let moved = false;
+  Composite.allBodies(engine.world).forEach((body) => {
+    if (body.label !== 'block' || body.isStagePart) return;
+    const { min, max } = body.bounds;
+    let dx = 0;
+    let dy = 0;
+    if (max.x - min.x >= width) dx = width / 2 - (min.x + max.x) / 2;
+    else if (min.x < 0) dx = -min.x;
+    else if (max.x > width) dx = width - max.x;
+    if (max.y > bottom) dy = Math.max(bottom - max.y, -min.y);
+    if (dx === 0 && dy === 0) return;
+
+    Body.setPosition(body, { x: body.position.x + dx, y: body.position.y + dy });
+    if (body.blockType === 'gear' || body.blockType === 'motor-gear') {
+      // はぐるまはピンで留めているので、ピンの位置も一緒に動かす（動かさないと元の場所へ引き戻される）
+      Composite.allConstraints(engine.world).forEach((c) => {
+        if (c.bodyB === body && c.pointA) c.pointA = { x: c.pointA.x + dx, y: c.pointA.y + dy };
+      });
+    }
+    moved = true;
+  });
+  if (moved) wakeBalls();
+}
+
 // ページが裏に回っている間はボールを落とさない
 // （setInterval は裏でも動き続けるため、戻ったときにボールが溜まっていて一斉に鳴る）
 function handleVisibilityChange() {
   if (!isGameActive) return;
   if (document.hidden) {
     stopBallTimer();
+    // 押したまま裏に回ると指を離した通知が来ないことがあり、見ていない間に長押しで消えたり、
+    // 戻ったあとボタンを離しているのにブロックが付いてきたりする
+    cancelPress();
   } else {
     lastPhysicsTime = null;
     startBallTimer(getBallInterval());
