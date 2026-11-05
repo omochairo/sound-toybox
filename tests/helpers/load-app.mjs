@@ -75,8 +75,8 @@ function createFakeAudio() {
 // jsdom はレイアウトを計算しないので、ステージの配置範囲（getStageArea）を本番と揃えるために使う
 export function measuredLayout(width, height) {
   if (height <= 550) return { ageBottom: 39, stageBottom: 97, panelHeight: 103 }; // スマホ横 812x375
-  if (width < 500) return { ageBottom: 60, stageBottom: 142, panelHeight: 143 };  // スマホ縦 375x812
-  return { ageBottom: 59, stageBottom: 126, panelHeight: 143 };                    // タブレット 1024x768（Web フォント読み込み後）
+  if (width < 500) return { ageBottom: 58, stageBottom: 142, panelHeight: 143 };  // スマホ縦 375x812（ageBottom は #15 D で帯を 2px 詰めたあと）
+  return { ageBottom: 58, stageBottom: 126, panelHeight: 143 };                    // タブレット 1024x768（Web フォント読み込み後）
 }
 
 export function loadApp({ withMatter = true, width = 1024, height = 768, storage, layout } = {}) {

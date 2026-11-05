@@ -289,6 +289,23 @@ function playTone(freq, velocity = 0.5) {
 }
 
 // 打楽器（ドラム）音再生
+// シンバルのホワイトノイズ（0.15 秒）。当たるたびに作り直すと、連打したときに低スペック端末の負担になるので、
+// AudioContext ごとに 1 つだけ作って使い回す（AudioContext を作り直したら、作り直す）
+let snareNoiseBuffer = null;
+let snareNoiseCtx = null;
+function getSnareNoiseBuffer() {
+  if (snareNoiseBuffer && snareNoiseCtx === audioCtx) return snareNoiseBuffer;
+  const bufferSize = Math.floor(audioCtx.sampleRate * 0.15);
+  const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < bufferSize; i++) {
+    data[i] = Math.random() * 2 - 1;
+  }
+  snareNoiseBuffer = buffer;
+  snareNoiseCtx = audioCtx;
+  return buffer;
+}
+
 function playDrum(type, velocity = 0.5) {
   if (!canScheduleSound()) return;
   const now = audioCtx.currentTime;
@@ -315,16 +332,8 @@ function playDrum(type, velocity = 0.5) {
   } 
   else if (type === 'snare') {
     // シンバルの「シャン」：ホワイトノイズ＋ハイパスフィルタ
-    const bufferSize = audioCtx.sampleRate * 0.15;
-    const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
-    const data = buffer.getChannelData(0);
-    
-    for (let i = 0; i < bufferSize; i++) {
-      data[i] = Math.random() * 2 - 1;
-    }
-    
     const noise = audioCtx.createBufferSource();
-    noise.buffer = buffer;
+    noise.buffer = getSnareNoiseBuffer();
     
     const filter = audioCtx.createBiquadFilter();
     filter.type = 'highpass';
@@ -384,6 +393,12 @@ function initPhysics() {
   createWalls();
 
   window.addEventListener('resize', handleResize);
+  watchPixelRatio();
+  // Web フォントがあとから読み込まれると、文字の幅が変わってパネルの高さも変わる。
+  // ステージの位置は読み込み前のパネルの高さで決めているので、読み終わったら合わせ直す
+  if (document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(handleResize).catch(() => {});
+  }
   setupCollisionHandler();
   setupCustomRenderer(); // Canvasカスタムテキスト描画
 
@@ -756,6 +771,7 @@ function applyPhysicsSliders() {
   const fricVal = parseFloat(document.getElementById('slider-friction').value);
 
   engine.gravity.y = gravVal;
+  if (gravVal <= 0) bringHiddenBallsIntoView();
   document.getElementById('val-gravity').innerText = gravVal.toFixed(1);
   document.getElementById('val-friction').innerText = fricVal.toFixed(2);
 
@@ -767,6 +783,26 @@ function applyPhysicsSliders() {
     }
   });
   wakeBalls(); // 眠ったボールにも新しい重力を効かせる
+}
+
+// むじゅうりょく（重力 0）で、ボールを浮かべる高さ（上の UI と下のパネルのあいだ）を 1 つ選ぶ
+function randomFloatingY(radius) {
+  const container = document.getElementById('game-container');
+  const top = getTopUiBottom(['age-selector', 'physics-panel']) + radius + 4;
+  const panel = document.getElementById('control-panel');
+  const bottom = container.clientHeight - (panel ? panel.offsetHeight : 0) - radius - 4;
+  return bottom > top ? top + Math.random() * (bottom - top) : top;
+}
+
+// 重力を 0 にしたとき、ちょうど画面の上の外（または上の UI の裏）を落ちていたボールは、
+// そのままだと見えない所に浮かんだまま残り、上限 120 個の枠を使ってしまう。見える所へ移して止める（Issue #15 A-3）
+function bringHiddenBallsIntoView() {
+  const hiddenAbove = getTopUiBottom(['age-selector', 'physics-panel']);
+  activeBalls.forEach((ball) => {
+    if (ball.position.y >= hiddenAbove) return;
+    Body.setPosition(ball, { x: ball.position.x, y: randomFloatingY(ball.circleRadius || 14) });
+    Body.setVelocity(ball, { x: 0, y: 0 });
+  });
 }
 
 // 9-10歳の「まさつ」スライダーの値（0 も 0 として使う）。ほかのモードでは null（今までの摩擦のまま）
@@ -818,6 +854,7 @@ function createGear(x, y, isMotor = false) {
   });
 
   Composite.add(engine.world, [gearBody, pin]);
+  wakeBallsNear(gearBody);
 }
 
 // 背景ガイド（ドミソの目安。3 つとも違う音にして、ピアノで音を選ぶ練習にする）の描画
@@ -948,10 +985,7 @@ function dropBall() {
   // 上の UI と下のパネルのあいだに出して、ふわふわ浮かぶ様子を見せる
   // （同じ高さに出すと重なって押し合い、画面の外へはじき出されるので、高さもばらつかせる）
   if (currentMode !== '6-8' && engine.gravity.y <= 0) {
-    const top = getTopUiBottom(['age-selector', 'physics-panel']) + radius + 4;
-    const panel = document.getElementById('control-panel');
-    const bottom = container.clientHeight - (panel ? panel.offsetHeight : 0) - radius - 4;
-    startY = bottom > top ? top + Math.random() * (bottom - top) : top;
+    startY = randomFloatingY(radius);
   }
   const randomColor = COLORS.balls[Math.floor(Math.random() * COLORS.balls.length)];
 
@@ -1038,6 +1072,20 @@ function wakeBallsTouching(removedBall) {
     if (!ball.isSleeping) return;
     const dist = Vector.magnitude(Vector.sub(ball.position, removedBall.position));
     if (dist <= ball.circleRadius + removedBall.circleRadius + BALL_WAKE_MARGIN_PX) {
+      Sleeping.set(ball, false);
+    }
+  });
+}
+
+// 眠っているボールに重ねて（またはすぐ上に）ブロックを置いたとき、ボールが眠ったままだと
+// ブロックにめり込んだまま動かない。置いたブロックの近くの眠ったボールを起こして、押し出させる（Issue #15 D）
+function wakeBallsNear(body) {
+  const b = body.bounds;
+  activeBalls.forEach(ball => {
+    if (!ball.isSleeping) return;
+    const r = ball.circleRadius + BALL_WAKE_MARGIN_PX;
+    const { x, y } = ball.position;
+    if (x + r >= b.min.x && x - r <= b.max.x && y + r >= b.min.y && y - r <= b.max.y) {
       Sleeping.set(ball, false);
     }
   });
@@ -1579,6 +1627,7 @@ function createBlock(x, y) {
 
   playTone(392.00, 0.4); // 配置音
   Composite.add(engine.world, block);
+  wakeBallsNear(block);
 }
 
 // -------------------------------------------------------------
@@ -1813,6 +1862,18 @@ function setupUI() {
     btnToggleGuide.innerText = isGuideOn ? 'ガイド: ON' : 'ガイド: OFF';
     playTone(440, 0.3);
   });
+}
+
+// ウィンドウを DPR の違うモニターへ移すと、CSS の大きさが同じなら resize が来ないことがある。
+// そのままだと canvas の実寸が前の DPR のままでぼやけるので、DPR の変化も見張る（1 回変わるたびに見張り直す）
+function watchPixelRatio() {
+  if (typeof window.matchMedia !== 'function') return;
+  const query = window.matchMedia(`(resolution: ${window.devicePixelRatio || 1}dppx)`);
+  if (!query || typeof query.addEventListener !== 'function') return;
+  query.addEventListener('change', () => {
+    handleResize();
+    watchPixelRatio();
+  }, { once: true });
 }
 
 // 物理エンジンサイズのリサイズ処理
