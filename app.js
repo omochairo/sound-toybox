@@ -244,6 +244,12 @@ function allowHitSound(target) {
   return true;
 }
 
+// 当たる強さ（0〜1）。ゆっくり当たっても聞こえるよう下限を設ける（光るのに音が聞こえない、を防ぐ）
+const MIN_HIT_VELOCITY = 0.1;
+function clampVelocity(velocity) {
+  return Math.min(Math.max(velocity, MIN_HIT_VELOCITY), 1.0);
+}
+
 // 鉄琴音再生
 function playTone(freq, velocity = 0.5) {
   if (!canScheduleSound()) return;
@@ -259,7 +265,7 @@ function playTone(freq, velocity = 0.5) {
   osc2.type = 'sine';
   osc2.frequency.value = freq * 2.76;
 
-  const volume = Math.min(Math.max(velocity, 0.1), 1.0) * 0.35;
+  const volume = clampVelocity(velocity) * 0.35;
   
   gain1.gain.setValueAtTime(0, now);
   gain1.gain.linearRampToValueAtTime(volume, now + 0.005);
@@ -286,6 +292,7 @@ function playTone(freq, velocity = 0.5) {
 function playDrum(type, velocity = 0.5) {
   if (!canScheduleSound()) return;
   const now = audioCtx.currentTime;
+  velocity = clampVelocity(velocity);
 
   if (type === 'bass') {
     // 和太鼓風の「ドン」：サイン波の急激なピッチ低下
@@ -404,7 +411,9 @@ function physicsLoop(time) {
     physicsAccumulator -= PHYSICS_STEP_MS;
     steps++;
   }
-  if (steps === MAX_STEPS_PER_FRAME) physicsAccumulator = 0;
+  // 上限に達したら、追いつけなかった分のステップは捨てる。ただし 1 ステップに満たない端数は次のフレームへ持ち越す
+  // （端数まで捨てると、15fps 前後の端末で少しずつ遅れていく）
+  if (steps === MAX_STEPS_PER_FRAME) physicsAccumulator %= PHYSICS_STEP_MS;
 }
 
 function createWalls() {
@@ -439,6 +448,9 @@ function createWalls() {
 function switchMode(mode) {
   currentMode = mode;
   closePiano();
+  cancelPress(); // 別の指でブロックを押さえたままタブを押しても、長押しタイマーとドラッグを残さない
+  hideRotateHint();
+  wasStageCramped = false;
 
   // タイマーの停止
   stopBallTimer();
@@ -466,6 +478,7 @@ function switchMode(mode) {
     currentShape = 'slope';
     updateActiveToolButton();
     loadStage(currentStage);
+    updateRotateHint(true);
     startBallTimer(getBallInterval());
   } 
   else if (mode === '9-10') {
@@ -565,6 +578,7 @@ function stopBallTimer() {
 function loadStage(stageNum) {
   currentStage = stageNum;
   closePiano();
+  cancelPress(); // 押さえていたブロックはこのあと消えるので、長押しタイマーとドラッグを残さない
 
   activeBalls = []; // 下で消すボールの参照を管理配列に残さない
   const bodies = Composite.allBodies(engine.world);
@@ -588,17 +602,24 @@ function loadStage(stageNum) {
 // 画面全体の比率で置くと、スマホではゴールが下のパネルの裏に隠れてしまうため
 const STAGE_REFERENCE_WIDTH = 1024; // 障害物の大きさを決めたときの画面幅（タブレット横）
 const STAGE_REFERENCE_HEIGHT = 520; // 同じく、置ける範囲の高さ
-function getStageArea() {
+// 上に重なっている UI（年齢タブなど）のうち、見えているものの下端（game-container の上端から）
+function getTopUiBottom(ids) {
   const container = document.getElementById('game-container');
-  const height = container.clientHeight;
   const containerTop = container.getBoundingClientRect().top;
   let top = 0;
-  ['age-selector', 'stage-selector'].forEach(id => {
+  ids.forEach(id => {
     const el = document.getElementById(id);
     if (el && !el.classList.contains('hidden')) {
       top = Math.max(top, el.getBoundingClientRect().bottom - containerTop);
     }
   });
+  return top;
+}
+
+function getStageArea() {
+  const container = document.getElementById('game-container');
+  const height = container.clientHeight;
+  const top = getTopUiBottom(['age-selector', 'stage-selector']);
   const panel = document.getElementById('control-panel');
   const bottom = height - (panel ? panel.offsetHeight : 0);
   // スタートの文字（上）とゴールの文字（下）が隠れないよう余白をとる
@@ -606,6 +627,42 @@ function getStageArea() {
   // レイアウトが取れないときは画面全体を使う
   if (!(area.bottom - area.top > 80)) return { top: 0, bottom: height };
   return area;
+}
+
+// スマホの横画面のように、ステージを置ける範囲が低すぎるときは「たてに すると あそびやすいよ」と案内する
+// （遊べなくはしない。案内は少しのあいだだけ出して、ステージの邪魔をしない）
+const CRAMPED_STAGE_HEIGHT = 240; // これより低いと、障害物が縮みすぎて解き方が変わってしまう（横画面は 100〜160px）
+const ROTATE_HINT_MS = 4000;
+let rotateHintTimer = null;
+let wasStageCramped = false;
+
+function isStageCramped() {
+  const container = document.getElementById('game-container');
+  const area = getStageArea();
+  return container.clientWidth > container.clientHeight && area.bottom - area.top < CRAMPED_STAGE_HEIGHT;
+}
+
+function hideRotateHint() {
+  if (rotateHintTimer) {
+    clearTimeout(rotateHintTimer);
+    rotateHintTimer = null;
+  }
+  document.getElementById('rotate-hint').classList.add('hidden');
+}
+
+// force: 6-8歳に切り替えた直後は、前から横画面でも案内を出す（回転やリサイズでは、横になったときだけ出す）
+function updateRotateHint(force = false) {
+  const cramped = currentMode === '6-8' && isStageCramped();
+  const shouldShow = cramped && (force || !wasStageCramped);
+  wasStageCramped = cramped;
+  if (!cramped) {
+    hideRotateHint();
+    return;
+  }
+  if (!shouldShow) return;
+  hideRotateHint();
+  document.getElementById('rotate-hint').classList.remove('hidden');
+  rotateHintTimer = setTimeout(hideRotateHint, ROTATE_HINT_MS);
 }
 
 function stagePoint(pos, width, area) {
@@ -702,13 +759,21 @@ function applyPhysicsSliders() {
   document.getElementById('val-gravity').innerText = gravVal.toFixed(1);
   document.getElementById('val-friction').innerText = fricVal.toFixed(2);
 
+  // Matter.js は当たった 2 つのうち小さいほうの摩擦を使うので、ブロックとボールの両方に入れる
   const bodies = Composite.allBodies(engine.world);
   bodies.forEach(body => {
-    if (body.label === 'block') {
-      Body.set(body, 'friction', fricVal);
+    if (body.label === 'block' || body.label === 'ball') {
+      body.friction = fricVal;
     }
   });
   wakeBalls(); // 眠ったボールにも新しい重力を効かせる
+}
+
+// 9-10歳の「まさつ」スライダーの値（0 も 0 として使う）。ほかのモードでは null（今までの摩擦のまま）
+function getSliderFriction() {
+  if (currentMode !== '9-10') return null;
+  const value = parseFloat(document.getElementById('slider-friction').value);
+  return Number.isFinite(value) ? value : null;
 }
 
 // はぐるまギミックの生成
@@ -736,6 +801,8 @@ function createGear(x, y, isMotor = false) {
   });
   // 歯車は眠らせない（モーターの角速度 0.038 はスリープ判定のしきい値を下回り、1 秒ほどで止まってしまう）
   gearBody.sleepThreshold = -1;
+  const sliderFriction = getSliderFriction();
+  if (sliderFriction !== null) gearBody.friction = sliderFriction;
 
   const pin = Constraint.create({
     pointA: { x: x, y: y },
@@ -753,7 +820,7 @@ function createGear(x, y, isMotor = false) {
   Composite.add(engine.world, [gearBody, pin]);
 }
 
-// 背景ガイド（きらきら星の最初の3音目安）の描画
+// 背景ガイド（ドミソの目安。3 つとも違う音にして、ピアノで音を選ぶ練習にする）の描画
 function drawMelodyGuide(ctx) {
   const container = document.getElementById('game-container');
   const width = container.clientWidth;
@@ -812,6 +879,8 @@ function wakeBalls() {
 }
 
 // ピアノ鍵盤を開く
+const PIANO_MIN_TOP = 70;    // これより上に出すと、上の年齢タブなどに重なる
+const PIANO_GAP_BELOW = 15;  // ブロックの下に出すときの すきま（上に出すときと同じくらい）
 function openPiano(block, eventCoords) {
   selectedNoteBlock = block;
   const keyboard = document.getElementById('piano-keyboard');
@@ -826,7 +895,11 @@ function openPiano(block, eventCoords) {
   // 画面左右のはみ出し防止
   // （幅 340px 未満の画面では余白を削って、右端の鍵盤が切れないようにする）
   left = Math.max(Math.min(10, (width - 320) / 2), Math.min(left, width - 330));
-  top = Math.max(70, top); // 上部年齢タブなどと重ね合わせを回避
+  if (top < PIANO_MIN_TOP) {
+    // 上に出すと年齢タブなどに重なる位置のおんぷは、ブロックの下に出す
+    // （上に寄せるだけだと、鍵盤がおんぷブロックに重なって隠してしまう）
+    top = block.bounds.max.y + PIANO_GAP_BELOW;
+  }
 
   keyboard.style.left = `${left}px`;
   keyboard.style.top = `${top}px`;
@@ -870,6 +943,16 @@ function dropBall() {
 
   // パズル（6-8歳）は同じ置き方なら毎回同じ結果になるよう、ボールの大きさを固定する
   const radius = currentMode === '6-8' ? PUZZLE_BALL_RADIUS : 12 + Math.random() * 5;
+
+  // 重力が 0（むじゅうりょく）のときは、画面の上の外から出すと入ってこずに見えない所へたまるので、
+  // 上の UI と下のパネルのあいだに出して、ふわふわ浮かぶ様子を見せる
+  // （同じ高さに出すと重なって押し合い、画面の外へはじき出されるので、高さもばらつかせる）
+  if (currentMode !== '6-8' && engine.gravity.y <= 0) {
+    const top = getTopUiBottom(['age-selector', 'physics-panel']) + radius + 4;
+    const panel = document.getElementById('control-panel');
+    const bottom = container.clientHeight - (panel ? panel.offsetHeight : 0) - radius - 4;
+    startY = bottom > top ? top + Math.random() * (bottom - top) : top;
+  }
   const randomColor = COLORS.balls[Math.floor(Math.random() * COLORS.balls.length)];
 
   const ball = Bodies.circle(startX, startY, radius, {
@@ -882,6 +965,8 @@ function dropBall() {
     render: { fillStyle: randomColor },
     label: 'ball'
   });
+  const sliderFriction = getSliderFriction();
+  if (sliderFriction !== null) ball.friction = sliderFriction;
 
   // 画面内のボール最大数を120個に制限し、最古のボールを順次消去する
   activeBalls.push(ball);
@@ -971,6 +1056,12 @@ function popBall(ball) {
   playTone(highTones[Math.floor(Math.random() * highTones.length)], 0.5);
 }
 
+// ブロックの色（はぐるまは複合ボディで、親の fillStyle は Matter.js が決めた色なので、部品の色を使う）
+function getBlockColor(block) {
+  const part = block.parts && block.parts.length > 1 ? block.parts[1] : block;
+  return part.render.fillStyle;
+}
+
 // ブロックを一瞬光らせる（当たった・回したことが目で分かるように）
 const BLOCK_FLASH_MS = 220;
 function flashBlock(block) {
@@ -990,7 +1081,7 @@ function drawBlockFlashes(ctx, bodies) {
     const size = Math.max(body.bounds.max.x - body.bounds.min.x, body.bounds.max.y - body.bounds.min.y);
     ctx.save();
     ctx.globalAlpha = 1 - progress;
-    ctx.strokeStyle = body.render.fillStyle || COLORS.square;
+    ctx.strokeStyle = getBlockColor(body) || COLORS.square;
     ctx.lineWidth = 5;
     ctx.beginPath();
     ctx.arc(body.position.x, body.position.y, size / 2 + 4 + progress * 14, 0, Math.PI * 2);
@@ -1055,7 +1146,9 @@ function handleCollisionStart(pair) {
 
   if (isBallA || isBallB) {
     const ball = isBallA ? bodyA : bodyB;
-    const target = isBallA ? bodyB : bodyA;
+    // はぐるま・モーターギアは 2 本の棒を合わせた複合ボディで、衝突では部品が渡ってくるので、親のボディで判定する
+    const hitPart = isBallA ? bodyB : bodyA;
+    const target = hitPart.parent || hitPart;
 
     // ① 6-8歳パズル：ゴール到達判定
     if (currentMode === '6-8' && target === goalSensor) {
@@ -1077,7 +1170,7 @@ function handleCollisionStart(pair) {
       if (!allowHitSound(target)) return;
 
       let freq;
-      let color = target.render.fillStyle;
+      let color = getBlockColor(target);
 
       if (target.blockType === 'note') {
         const note = NOTE_TONES[target.toneIndex];
@@ -1294,7 +1387,8 @@ function setupInteraction() {
         }
         else if (clickedBody.blockType === 'note') {
           // おんぷブロックの場合：ピアノキーボードをトグル表示
-          openPiano(clickedBody, coords);
+          // （1 回目のタップで開いていたら、2 回目のタップで閉じたままにする）
+          if (clickedBody !== pianoOpenedFor) openPiano(clickedBody, coords);
         }
         else {
           // それ以外の形はくるっと回す（小さい子が連打しても、置いたものが消えてしまわないようにする。消すのは長押しか「けす」）
@@ -1396,12 +1490,13 @@ function setupInteraction() {
 }
 
 // 各種ギミックの物理定義と配置
+// （6-8歳のステージの障害物などに重なる位置にも、わざと置けるようにしている。
+//   ブロックも障害物も動かないので物理はおかしくならず、置けない理由が小さい子には分かりにくいため）
 function createBlock(x, y) {
   let block;
   const options = {
     isStatic: true,
-    label: 'block',
-    friction: parseFloat(document.getElementById('slider-friction').value) || 0.1
+    label: 'block'
   };
 
   // 1. 基本図形
@@ -1477,6 +1572,10 @@ function createBlock(x, y) {
       render: { fillStyle: '#ffc6ff' }
     });
   }
+
+  // isStatic のボディは作るときに摩擦が 1 に上書きされるので、作ったあとでスライダーの値を入れる
+  const sliderFriction = getSliderFriction();
+  if (sliderFriction !== null) block.friction = sliderFriction;
 
   playTone(392.00, 0.4); // 配置音
   Composite.add(engine.world, block);
@@ -1720,6 +1819,8 @@ function setupUI() {
 function handleResize() {
   const container = document.getElementById('game-container');
   if (!container || !render) return;
+  // 開いていたピアノは前の位置に残ってしまうので閉じる
+  closePiano();
 
   const width = container.clientWidth;
   const height = container.clientHeight;
@@ -1754,6 +1855,7 @@ function handleResize() {
     });
     addStageParts(STAGE_DATA[currentStage - 1]);
     wakeBalls();
+    updateRotateHint();
   }
 }
 
@@ -1802,11 +1904,12 @@ function handleVisibilityChange() {
   }
 }
 
-// Matter.js（CDN）の読み込みに失敗したときの案内
+// Matter.js（vendor/ に同梱）の読み込みに失敗したときの案内
+// （同梱なので、原因はネットワークとは限らない。読み込み直しだけを案内する）
 function showLoadError() {
   const subtitle = document.querySelector('#start-screen .subtitle');
   const btnStart = document.getElementById('btn-start');
-  subtitle.textContent = 'よみこみに しっぱいしました。インターネットに つないでから もういちど ためしてね';
+  subtitle.textContent = 'よみこみに しっぱいしました。したの ボタンで もういちど ためしてね';
   btnStart.textContent = 'もういちど よみこむ ↻';
   btnStart.classList.remove('pulse-animation');
   btnStart.addEventListener('click', () => location.reload());
