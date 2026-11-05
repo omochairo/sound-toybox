@@ -46,12 +46,12 @@
       <button class="piano-key white" data-note="11"><span>シ</span></button>
       <button class="piano-key white" data-note="12"><span>ど</span></button>
       
-      <!-- 黒鍵 (5鍵) - 白鍵の隙間に絶対配置 -->
-      <button class="piano-key black" data-note="1" style="left: 28px;"><span>ド#</span></button>
-      <button class="piano-key black" data-note="3" style="left: 68px;"><span>レ#</span></button>
-      <button class="piano-key black" data-note="6" style="left: 148px;"><span>ファ#</span></button>
-      <button class="piano-key black" data-note="8" style="left: 188px;"><span>ソ#</span></button>
-      <button class="piano-key black" data-note="10" style="left: 228px;"><span>ラ#</span></button>
+      <!-- 黒鍵 (5鍵) - 白鍵の境目の真上に絶対配置。白鍵は 320px の枠（内側 314px）に縮んで 38.375px 幅 + 1px の間隔なので、i 本目の白鍵の後ろの境目は 2.5 + 39.375 × i px。left はそこから黒鍵の幅の半分（12.5px）を引いた値 -->
+      <button class="piano-key black" data-note="1" style="left: 29.375px;"><span>ド#</span></button>
+      <button class="piano-key black" data-note="3" style="left: 68.75px;"><span>レ#</span></button>
+      <button class="piano-key black" data-note="6" style="left: 147.5px;"><span>ファ#</span></button>
+      <button class="piano-key black" data-note="8" style="left: 186.875px;"><span>ソ#</span></button>
+      <button class="piano-key black" data-note="10" style="left: 226.25px;"><span>ラ#</span></button>
     </div>
     <div class="piano-arrow"></div>
   </div>
