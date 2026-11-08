@@ -96,7 +96,7 @@ test('ちょうせんじょうのリンク（?ch=ステージ-てんすう）で
 });
 
 test('おかしな ちょうせんじょう・さくひんのリンクは無視して、ふつうに始まる', () => {
-  for (const q of ['?ch=9-900', '?ch=1-5000', '?ch=1-299', '?ch=abc', '?s=x', '?s=3~6~10~12~', '?s=3~6~10~12~z.1.1.0', '?s=9~99~10~12~c.1.1.0']) {
+  for (const q of ['?ch=9-900', '?ch=1-5000', '?ch=1-299', '?ch=abc', '?sakuhin=x', '?sakuhin=3~6~10~12~', '?sakuhin=3~6~10~12~z.1.1.0', '?sakuhin=9~99~10~12~c.1.1.0']) {
     const app = loadApp({ url: `http://localhost/${q}` });
     assert.equal(app.document.getElementById('start-invite').classList.contains('hidden'), true, q);
     app.start();
@@ -127,7 +127,10 @@ test('ピタゴラおんがくの作品をリンクにして開き直すと、�
   app.g('Body').setAngle(slope, Math.PI / 4);
 
   const content = app.g('buildShareContent()');
-  assert.match(content.url, /^https:\/\/omcha\.jp\/pitagora-puzzle-game\/\?s=/);
+  assert.match(content.url, /^https:\/\/omcha\.jp\/pitagora-puzzle-game\/\?sakuhin=/);
+  // WordPress が使う名前のクエリを付けない（?s= は検索になり記事が開かない）
+  const reserved = ['s', 'p', 'w', 'm', 'page', 'paged', 'name', 'page_id', 'cat', 'tag', 'author', 'feed', 'preview', 'search', 'year', 'day'];
+  for (const key of new URL(content.url).searchParams.keys()) assert.ok(!reserved.includes(key), key);
   const query = new URL(content.url).search;
   app.close();
 
@@ -153,7 +156,7 @@ test('ピタゴラおんがくの作品をリンクにして開き直すと、�
 });
 
 test('おもちゃばこの作品は まる・さんかく・しかく だけで置き直す', () => {
-  const app = loadApp({ url: 'http://localhost/?s=' + encodeURIComponent('3~6~10~12~c.300.300.0_t.500.400.330_s.700.500.0_g.400.400.0') }).start();
+  const app = loadApp({ url: 'http://localhost/?sakuhin=' + encodeURIComponent('3~6~10~12~c.300.300.0_t.500.400.330_s.700.500.0_g.400.400.0') }).start();
   assert.equal(app.g('currentMode'), '3-5');
   assert.equal(app.blocks().map((b) => b.shapeType).sort().join(','), 'circle,square,triangle');
   app.close();

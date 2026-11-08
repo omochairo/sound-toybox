@@ -1979,7 +1979,9 @@ function showStageScore(result) {
 }
 let lastStageResult = null;
 
-// ---- シェアされたリンク（?ch=ステージ-てんすう / ?s=さくひん）----
+// ---- シェアされたリンク（?ch=ステージ-てんすう / ?sakuhin=さくひん）----
+// （リンク先は WordPress の記事なので、WordPress が使う名前（s・p・w・page など）は使わない。
+//   ?s= は WordPress の検索になり、記事ではなく「見つかりません」のページが開いてしまった）
 function parseChallenge(value) {
   const m = /^([1-9])-(\d{3,4})$/.exec(value || '');
   if (!m) return null;
@@ -2098,7 +2100,7 @@ function applyCreation(data) {
 function readSharedLink(search) {
   const params = new URLSearchParams(search || '');
   challenge = parseChallenge(params.get('ch'));
-  sharedCreation = challenge ? null : decodeCreation(params.get('s'));
+  sharedCreation = challenge ? null : decodeCreation(params.get('sakuhin'));
   const invite = document.getElementById('start-invite');
   if (challenge) {
     invite.textContent = `🏆 ちょうせんじょうが とどいたよ！ ステージ${challenge.stage}で ${challenge.score}てんを こえられるかな？`;
@@ -2138,7 +2140,7 @@ function buildShareContent() {
     text: hasBlocks
       ? `「おととかたちのピタゴラパズル」で 音の なる そうちを つくったよ！ ひらくと うごきだすよ🎵 ${SHARE_TAGS}`
       : `ボールが ころがって 音が なる、無料の ピタゴラパズル！ ${SHARE_TAGS}`,
-    url: hasBlocks ? `${SHARE_URL}?s=${encodeURIComponent(creation)}` : SHARE_URL
+    url: hasBlocks ? `${SHARE_URL}?sakuhin=${encodeURIComponent(creation)}` : SHARE_URL
   };
 }
 
