@@ -9,6 +9,8 @@ let audioCtx = null;
 let masterBus = null;         // すべての音が通るマスター（音量の上限をかける）
 let currentMode = '3-5';      // '3-5', '6-8', '9-10'
 let currentStage = 1;         // 6-8歳パズルモード用
+let stageStartedAt = 0;       // 6-8歳：今のステージを出した時刻（スコアの「じかん」）
+let isRestoringCreation = false; // シェアされた作品を置き直している間だけ true
 let currentShape = 'circle';   // 選択中の配置オブジェクト
 let currentSubCategory = 'shape'; // 9-10歳のサブカテゴリ ('shape', 'gimmick', 'music')
 let isGameActive = false;
@@ -217,6 +219,7 @@ function initAudio() {
 // 今、音を予約してよいか
 // （止まっている AudioContext は currentTime も止まるので、その間に予約した音は再開した瞬間に全部まとめて鳴ってしまう）
 function canScheduleSound() {
+  if (isRestoringCreation) return false; // シェアされた作品をまとめて置き直す間は、置く音を一斉に鳴らさない
   if (!audioCtx || !masterBus) return false;
   const state = audioCtx.state;
   if (!state || state === 'running') return true; // state の無い古い実装は今までどおり鳴らす
@@ -611,6 +614,7 @@ function loadStage(stageNum) {
   });
 
   addStageParts(STAGE_DATA[stageNum - 1]);
+  stageStartedAt = Date.now(); // スコアの「じかん」はステージを出したときから数える
 }
 
 // ステージを置ける範囲（上のタブ・ステージ選択と、下のツールパネルの間）
@@ -753,6 +757,7 @@ function handleStageClear() {
     document.querySelector('#clear-modal .clear-message').textContent = allCleared
       ? 'ぜんぶの ステージを クリアしたよ！ すごい！'
       : 'じょうずに ボールを はこべたね！';
+    showStageScore(recordStageScore(currentStage, countPlacedBlocks(), (Date.now() - stageStartedAt) / 1000));
     document.getElementById('clear-modal').classList.remove('hidden');
     playTone(523.25, 0.5); // ド
     setTimeout(() => playTone(659.25, 0.5), 120); // ミ
@@ -1625,6 +1630,7 @@ function createBlock(x, y) {
   const sliderFriction = getSliderFriction();
   if (sliderFriction !== null) block.friction = sliderFriction;
 
+  block.shapeType = currentShape; // シェアで置き直すときの形（まる・さんかく・しかくは blockType を持たない）
   playTone(392.00, 0.4); // 配置音
   Composite.add(engine.world, block);
   wakeBallsNear(block);
@@ -1745,6 +1751,7 @@ function setupUI() {
     ageSelector.classList.remove('hidden-ui');
 
     switchMode('3-5');
+    openSharedLink(); // シェアされたリンクから来たときは、そのステージ・さくひんを開く
   });
 
   // 年齢切り替えタブ
@@ -1842,6 +1849,14 @@ function setupUI() {
     loadStage(nextStage);
   });
 
+  // 6-8歳：クリア画面「もういちど」（ブロックも時間もはじめから。置いたまま押すと時間だけ短くできてしまうため）
+  document.getElementById('btn-retry-stage').addEventListener('click', () => {
+    document.getElementById('clear-modal').classList.add('hidden');
+    loadStage(currentStage);
+  });
+
+  setupShareUI();
+
   // 9-10歳：物理調整スライダー
   document.getElementById('slider-gravity').addEventListener('input', applyPhysicsSliders);
   document.getElementById('slider-friction').addEventListener('input', applyPhysicsSliders);
@@ -1862,6 +1877,344 @@ function setupUI() {
     btnToggleGuide.innerText = isGuideOn ? 'ガイド: ON' : 'ガイド: OFF';
     playTone(440, 0.3);
   });
+}
+
+// -------------------------------------------------------------
+// 7. スコア（6-8歳）とシェア
+// -------------------------------------------------------------
+// きろくはサーバーに送らない。競うのは「じぶんのベスト」と、シェアしたリンク（ちょうせんじょう）で。
+// （ランキングを置くと子どもの名前や入力を集めることになり、見張る人もいないため）
+const SHARE_URL = 'https://omcha.jp/pitagora-puzzle-game/';
+const SHARE_TAGS = '#ピタゴラパズル #おもちゃいろ';
+const BEST_STORAGE_KEY = 'sound-toybox:best-scores';
+let bestScoresThisSession = {}; // 保存できない環境（プライベートブラウズ等）でも、開いている間は覚えておく
+let challenge = null;           // シェアされた ちょうせんじょう { stage, score }
+let sharedCreation = null;      // シェアされた さくひん（decodeCreation の結果）
+
+// スコア：クリアで 300 てん + 少ないブロックで最大 400 てん + はやさで最大 300 てん（300〜1000 てん）
+const SCORE_BASE = 300;
+const SCORE_BLOCK_MAX = 400;
+const SCORE_PER_BLOCK = 40;
+const SCORE_TIME_MAX = 300;
+const SCORE_PER_SECOND = 2;
+function calcStageScore(blocks, seconds) {
+  const b = Math.max(0, Math.round(blocks));
+  const s = Math.max(0, Math.round(seconds));
+  return SCORE_BASE
+    + Math.max(0, SCORE_BLOCK_MAX - SCORE_PER_BLOCK * b)
+    + Math.max(0, SCORE_TIME_MAX - SCORE_PER_SECOND * s);
+}
+
+function starsFor(score) {
+  if (score >= 800) return 3;
+  if (score >= 550) return 2;
+  return 1;
+}
+
+const starText = (n) => '★'.repeat(n) + '☆'.repeat(3 - n);
+
+// 子どもが置いたブロックの数（はぐるまも 1 こ。ステージの部品は数えない）
+function countPlacedBlocks() {
+  return Composite.allBodies(engine.world).filter(b => b.label === 'block' && !b.isStagePart).length;
+}
+
+function isValidRecord(r) {
+  return r && Number.isFinite(r.score) && Number.isFinite(r.blocks) && Number.isFinite(r.seconds);
+}
+
+function loadBestScores() {
+  let saved = {};
+  try {
+    const parsed = JSON.parse(localStorage.getItem(BEST_STORAGE_KEY) || '{}');
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) saved = parsed;
+  } catch (e) {
+    // 読めない・壊れているときは、この回のきろくだけを使う
+  }
+  const best = {};
+  STAGE_DATA.forEach((_, i) => {
+    const key = String(i + 1);
+    const candidates = [saved[key], bestScoresThisSession[key]].filter(isValidRecord);
+    if (candidates.length) best[key] = candidates.reduce((a, b) => (b.score > a.score ? b : a));
+  });
+  return best;
+}
+
+// クリアのきろくを付けて、ベストを更新する
+function recordStageScore(stage, blocks, seconds) {
+  const s = Math.max(0, Math.round(seconds));
+  const result = { stage, blocks, seconds: s, score: calcStageScore(blocks, s) };
+  const key = String(stage);
+  const before = loadBestScores()[key];
+  result.isNewBest = !before || result.score > before.score;
+  if (result.isNewBest) {
+    bestScoresThisSession[key] = { score: result.score, blocks, seconds: s };
+    try {
+      localStorage.setItem(BEST_STORAGE_KEY, JSON.stringify(loadBestScores()));
+    } catch (e) {
+      // 保存できなくても、この回の表示には反映する
+    }
+  }
+  const best = loadBestScores();
+  result.best = best[key];
+  result.total = Object.values(best).reduce((sum, r) => sum + r.score, 0);
+  result.clearedCount = Object.keys(best).length;
+  return result;
+}
+
+function showStageScore(result) {
+  lastStageResult = result;
+  document.getElementById('score-main').textContent = `スコア ${result.score}てん ${starText(starsFor(result.score))}`;
+  document.getElementById('score-detail').textContent = `ブロック ${result.blocks}こ ・ ${result.seconds}びょう`;
+  document.getElementById('score-best').textContent = (result.isNewBest ? '🎉 じこベスト こうしん！ ' : `ベスト ${result.best.score}てん ／ `)
+    + `ごうけい ${result.total}てん（${result.clearedCount}/${STAGE_DATA.length} ステージ）`;
+  const line = document.getElementById('score-challenge');
+  if (challenge && challenge.stage === result.stage) {
+    line.textContent = result.score > challenge.score
+      ? `🏆 ちょうせん せいこう！ ${challenge.score}てんを こえたよ！`
+      : `ちょうせんまで あと ${challenge.score - result.score + 1}てん！ もういちど やってみよう`;
+    line.classList.remove('hidden');
+  } else {
+    line.classList.add('hidden');
+  }
+}
+let lastStageResult = null;
+
+// ---- シェアされたリンク（?ch=ステージ-てんすう / ?s=さくひん）----
+function parseChallenge(value) {
+  const m = /^([1-9])-(\d{3,4})$/.exec(value || '');
+  if (!m) return null;
+  const stage = Number(m[1]);
+  const score = Number(m[2]);
+  if (stage > STAGE_DATA.length || score < SCORE_BASE || score > SCORE_BASE + SCORE_BLOCK_MAX + SCORE_TIME_MAX) return null;
+  return { stage, score };
+}
+
+// さくひん：モード~じゅうりょく×10~まさつ×100~テンポ÷10~ブロック（_ でつなぐ。1 こは 形.x.y.角度[.音]）
+// x・y は画面の幅・高さに対する千分率なので、ちがう大きさの画面でも同じような配置で開ける
+const SHAPE_CODES = {
+  circle: 'c', triangle: 't', square: 's', slope: 'l', bouncer: 'b', conveyor: 'v',
+  gear: 'g', 'motor-gear': 'm', note: 'n', drum: 'd'
+};
+const CODE_SHAPES = Object.fromEntries(Object.entries(SHAPE_CODES).map(([k, v]) => [v, k]));
+const SHAPES_3_5 = ['circle', 'triangle', 'square'];
+const MAX_SHARED_BLOCKS = 60;
+
+function encodeCreation() {
+  const container = document.getElementById('game-container');
+  const width = container.clientWidth;
+  const height = container.clientHeight;
+  const permille = (v, size) => Math.min(1000, Math.max(0, Math.round((v / size) * 1000)));
+  const blocks = Composite.allBodies(engine.world)
+    .filter(b => b.label === 'block' && !b.isStagePart && SHAPE_CODES[b.shapeType || b.blockType])
+    .slice(0, MAX_SHARED_BLOCKS)
+    .map(b => {
+      const type = b.shapeType || b.blockType;
+      const deg = ((Math.round(b.angle * 180 / Math.PI) % 360) + 360) % 360;
+      const parts = [SHAPE_CODES[type], permille(b.position.x, width), permille(b.position.y, height), deg];
+      if (type === 'note') parts.push(b.toneIndex || 0);
+      if (type === 'drum') parts.push(b.drumType === 'snare' ? 1 : 0);
+      return parts.join('.');
+    });
+  if (currentMode === '9-10') {
+    const gravity = Math.round(parseFloat(document.getElementById('slider-gravity').value) * 10);
+    const friction = Math.round(parseFloat(document.getElementById('slider-friction').value) * 100);
+    const bpm = Math.round(parseInt(document.getElementById('slider-bpm').value) / 10);
+    return ['9', gravity, friction, bpm, blocks.join('_')].join('~');
+  }
+  return ['3', 6, 10, 12, blocks.join('_')].join('~');
+}
+
+function decodeCreation(value) {
+  if (typeof value !== 'string' || value.length > 2000) return null;
+  const fields = value.split('~');
+  if (fields.length !== 5 || (fields[0] !== '3' && fields[0] !== '9')) return null;
+  const int = (s, min, max) => {
+    if (!/^\d{1,4}$/.test(s)) return null;
+    const n = Number(s);
+    return n >= min && n <= max ? n : null;
+  };
+  const mode = fields[0] === '9' ? '9-10' : '3-5';
+  const gravity = int(fields[1], 0, 15);
+  const friction = int(fields[2], 0, 50);
+  const bpm = int(fields[3], 4, 20);
+  if (gravity === null || friction === null || bpm === null) return null;
+  const blocks = [];
+  (fields[4] ? fields[4].split('_') : []).slice(0, MAX_SHARED_BLOCKS).forEach(item => {
+    const p = item.split('.');
+    const shape = CODE_SHAPES[p[0]];
+    if (!shape || (mode === '3-5' && !SHAPES_3_5.includes(shape))) return;
+    const x = int(p[1], 0, 1000);
+    const y = int(p[2], 0, 1000);
+    const deg = int(p[3], 0, 359);
+    if (x === null || y === null || deg === null) return;
+    const block = { shape, x: x / 1000, y: y / 1000, angle: deg * Math.PI / 180 };
+    if (shape === 'note') block.tone = int(p[4] || '0', 0, NOTE_TONES.length - 1) ?? 0;
+    if (shape === 'drum') block.snare = p[4] === '1';
+    blocks.push(block);
+  });
+  if (!blocks.length) return null;
+  return { mode, gravity: gravity / 10, friction: friction / 100, bpm: bpm * 10, blocks };
+}
+
+function applyCreation(data) {
+  switchMode(data.mode);
+  if (data.mode === '9-10') {
+    document.getElementById('slider-gravity').value = data.gravity;
+    document.getElementById('slider-friction').value = data.friction;
+    document.getElementById('slider-bpm').value = data.bpm;
+    document.getElementById('val-bpm').innerText = data.bpm;
+    applyPhysicsSliders();
+    startBallTimer(getBallInterval());
+  }
+  const container = document.getElementById('game-container');
+  const width = container.clientWidth;
+  const height = container.clientHeight;
+  const defaultShape = currentShape;
+  isRestoringCreation = true;
+  try {
+    data.blocks.forEach(block => {
+      currentShape = block.shape;
+      const before = new Set(Composite.allBodies(engine.world));
+      createBlock(block.x * width, block.y * height);
+      Composite.allBodies(engine.world).filter(b => !before.has(b) && b.label === 'block').forEach(body => {
+        if (body.blockType !== 'gear' && body.blockType !== 'motor-gear') Body.setAngle(body, block.angle);
+        if (block.shape === 'note') {
+          body.toneIndex = block.tone;
+          body.render.fillStyle = NOTE_TONES[block.tone].color;
+        }
+        if (block.shape === 'drum' && block.snare) {
+          body.drumType = 'snare';
+          body.render.fillStyle = '#caffbf';
+        }
+      });
+    });
+  } finally {
+    isRestoringCreation = false;
+    currentShape = defaultShape;
+  }
+  keepBlocksOnScreen(width, height);
+}
+
+function readSharedLink(search) {
+  const params = new URLSearchParams(search || '');
+  challenge = parseChallenge(params.get('ch'));
+  sharedCreation = challenge ? null : decodeCreation(params.get('s'));
+  const invite = document.getElementById('start-invite');
+  if (challenge) {
+    invite.textContent = `🏆 ちょうせんじょうが とどいたよ！ ステージ${challenge.stage}で ${challenge.score}てんを こえられるかな？`;
+  } else if (sharedCreation) {
+    invite.textContent = `🎁 さくひんが とどいたよ！（${sharedCreation.mode === '9-10' ? 'ピタゴラおんがく' : 'おもちゃばこ'}・ブロック${sharedCreation.blocks.length}こ）`;
+  }
+  invite.classList.toggle('hidden', !(challenge || sharedCreation));
+}
+
+function openSharedLink() {
+  if (challenge) {
+    currentStage = challenge.stage;
+    switchMode('6-8');
+  } else if (sharedCreation) {
+    applyCreation(sharedCreation);
+    sharedCreation = null; // 2 回目のスタート（年齢タブの切りかえなど）では置き直さない
+  }
+}
+
+// ---- シェアする中身 ----
+function buildShareContent() {
+  if (currentMode === '6-8') {
+    const r = lastStageResult && lastStageResult.stage === currentStage ? lastStageResult : null;
+    const best = loadBestScores()[String(currentStage)];
+    const rec = r || (best ? { stage: currentStage, ...best } : null);
+    if (rec) {
+      return {
+        text: `「おととかたちのピタゴラパズル」ステージ${rec.stage}を ブロック${rec.blocks}こ・${rec.seconds}びょうで クリア！ スコア${rec.score}てん ${starText(starsFor(rec.score))} この きろく、こえられる？ ${SHARE_TAGS}`,
+        url: `${SHARE_URL}?ch=${rec.stage}-${rec.score}`
+      };
+    }
+    return { text: `ボールを ゴールまで はこぶ「ルートパズル」に ちょうせん中！ ${SHARE_TAGS}`, url: SHARE_URL };
+  }
+  const creation = encodeCreation();
+  const hasBlocks = !creation.endsWith('~');
+  return {
+    text: hasBlocks
+      ? `「おととかたちのピタゴラパズル」で 音の なる そうちを つくったよ！ ひらくと うごきだすよ🎵 ${SHARE_TAGS}`
+      : `ボールが ころがって 音が なる、無料の ピタゴラパズル！ ${SHARE_TAGS}`,
+    url: hasBlocks ? `${SHARE_URL}?s=${encodeURIComponent(creation)}` : SHARE_URL
+  };
+}
+
+// 端末の共有画面（スマホ）を使い、使えないときは X・LINE・コピーを選ぶ画面を出す
+async function shareContent(content) {
+  if (navigator.share) {
+    try {
+      await navigator.share({ title: 'おととかたちのピタゴラパズル', text: content.text, url: content.url });
+      return;
+    } catch (e) {
+      if (e && e.name === 'AbortError') return; // 自分で とじたときは何もしない
+      // iframe で許可されていない等のときは、下の画面で選んでもらう
+    }
+  }
+  openShareSheet(content);
+}
+
+let currentShareContent = null;
+function openShareSheet(content) {
+  currentShareContent = content;
+  document.getElementById('share-text').textContent = `${content.text} ${content.url}`;
+  document.getElementById('share-status').textContent = '';
+  document.getElementById('share-modal').classList.remove('hidden');
+}
+
+function closeShareSheet() {
+  document.getElementById('share-modal').classList.add('hidden');
+}
+
+function shareIntentUrl(service, content) {
+  if (service === 'x') {
+    return `https://x.com/intent/post?text=${encodeURIComponent(content.text)}&url=${encodeURIComponent(content.url)}`;
+  }
+  return `https://line.me/R/share?text=${encodeURIComponent(`${content.text} ${content.url}`)}`;
+}
+
+async function copyShareLink(content) {
+  const value = `${content.text} ${content.url}`;
+  try {
+    await navigator.clipboard.writeText(value);
+    return true;
+  } catch (e) {
+    // クリップボードが使えないとき（古いブラウザ・iframe の制限）は、選択してコピーする
+    const area = document.createElement('textarea');
+    area.value = value;
+    area.style.position = 'fixed';
+    area.style.opacity = '0';
+    document.body.appendChild(area);
+    area.select();
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch (err) { ok = false; }
+    area.remove();
+    return ok;
+  }
+}
+
+function setupShareUI() {
+  document.getElementById('btn-share').addEventListener('click', () => {
+    closePiano();
+    shareContent(buildShareContent());
+  });
+  document.getElementById('btn-share-score').addEventListener('click', () => shareContent(buildShareContent()));
+  document.getElementById('btn-share-x').addEventListener('click', () => {
+    if (currentShareContent) window.open(shareIntentUrl('x', currentShareContent), '_blank', 'noopener');
+  });
+  document.getElementById('btn-share-line').addEventListener('click', () => {
+    if (currentShareContent) window.open(shareIntentUrl('line', currentShareContent), '_blank', 'noopener');
+  });
+  document.getElementById('btn-share-copy').addEventListener('click', async () => {
+    if (!currentShareContent) return;
+    const ok = await copyShareLink(currentShareContent);
+    document.getElementById('share-status').textContent = ok
+      ? 'コピーしたよ！ LINE や メールに はりつけてね'
+      : 'コピーできなかったよ。上の文を ながおしして コピーしてね';
+  });
+  document.getElementById('btn-share-close').addEventListener('click', closeShareSheet);
 }
 
 // ウィンドウを DPR の違うモニターへ移すと、CSS の大きさが同じなら resize が来ないことがある。
@@ -1984,6 +2337,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   setupUI();
   updateClearedMarks();
+  readSharedLink(location.search);
   document.addEventListener('visibilitychange', handleVisibilityChange);
   // ボタン操作でも止まった AudioContext を再開できるようにする（iOS はユーザー操作の中でしか再開できない）
   document.addEventListener('touchend', () => { if (audioCtx) initAudio(); }, true);

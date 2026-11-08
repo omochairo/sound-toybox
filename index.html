@@ -20,6 +20,8 @@
     <div class="start-card">
       <h1>おととかたちの<br>ピタゴラパズル</h1>
       <p class="subtitle">おもちゃを おいて ボールを はねかえそう！</p>
+      <!-- シェアされたリンクから来たとき（ちょうせんじょう・さくひん）の案内。中身は app.js が textContent で入れる -->
+      <p id="start-invite" class="start-invite hidden"></p>
       <button id="btn-start" class="pulse-animation">おとをだして あそぶ ▶</button>
     </div>
   </div>
@@ -29,7 +31,33 @@
     <div class="clear-card">
       <h2 class="bounce-animation">🌟 クリア！ 🌟</h2>
       <p class="clear-message">じょうずに ボールを はこべたね！</p>
+      <!-- スコア（6〜8歳）。中身は app.js が textContent で入れる -->
+      <div id="score-box" class="score-box">
+        <p id="score-main" class="score-main"></p>
+        <p id="score-detail" class="score-detail"></p>
+        <p id="score-best" class="score-best"></p>
+        <p id="score-challenge" class="score-challenge hidden"></p>
+      </div>
       <button id="btn-next-stage">つぎの ステージへ ▶</button>
+      <div class="clear-sub-actions">
+        <button id="btn-retry-stage" class="sub-action-btn">🔁 もういちど</button>
+        <button id="btn-share-score" class="sub-action-btn share">📣 きろくを シェア</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- シェアのしかた（端末の共有画面が使えないとき） -->
+  <div id="share-modal" class="overlay hidden" role="dialog" aria-modal="true" aria-labelledby="share-title">
+    <div class="share-card">
+      <h2 id="share-title">おうちのひとと シェア</h2>
+      <p id="share-text" class="share-text"></p>
+      <div class="share-buttons">
+        <button id="btn-share-x" class="share-btn x">X（ツイッター）</button>
+        <button id="btn-share-line" class="share-btn line">LINE</button>
+        <button id="btn-share-copy" class="share-btn copy">リンクを コピー</button>
+      </div>
+      <p id="share-status" class="share-status" role="status"></p>
+      <button id="btn-share-close" class="share-close">とじる</button>
     </div>
   </div>
 
@@ -63,6 +91,8 @@
       <button class="age-tab active" data-mode="3-5">3〜5さい<br><small>おもちゃばこ</small></button>
       <button class="age-tab" data-mode="6-8">6〜8さい<br><small>ルートパズル</small></button>
       <button class="age-tab" data-mode="9-10">9〜10さい<br><small>ピタゴラおんがく</small></button>
+      <!-- シェア（3〜5・9〜10歳は置いた作品、6〜8歳はステージのきろく） -->
+      <button id="btn-share" class="share-tab" aria-label="シェアする">📣<small>シェア</small></button>
     </div>
 
     <!-- 6〜8歳モード用ステージセレクター（画面上部中央） -->

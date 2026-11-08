@@ -79,11 +79,11 @@ export function measuredLayout(width, height) {
   return { ageBottom: 58, stageBottom: 126, panelHeight: 143 };                    // タブレット 1024x768（Web フォント読み込み後）
 }
 
-export function loadApp({ withMatter = true, width = 1024, height = 768, storage, layout } = {}) {
+export function loadApp({ withMatter = true, width = 1024, height = 768, storage, layout, url = 'http://localhost/' } = {}) {
   const html = read('index.html')
     .replace(/<script[\s\S]*?<\/script>/g, '')
     .replace(/<link[^>]*>/g, '');
-  const dom = new JSDOM(html, { runScripts: 'dangerously', url: 'http://localhost/' });
+  const dom = new JSDOM(html, { runScripts: 'dangerously', url });
   const { window } = dom;
   const { document } = window;
 
