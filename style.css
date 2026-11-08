@@ -747,3 +747,181 @@ button:active {
     transition: none;
   }
 }
+
+/* -------------------------------------------------------------
+ * スコア（6〜8歳）とシェア
+ * ------------------------------------------------------------- */
+/* 上のタブの右はしのシェアボタン。タブと同じ高さに収めて、帯の高さ（ステージを置ける範囲）を変えない */
+.share-tab {
+  flex: 0 0 auto;
+  width: 46px;
+  padding: 4px 2px;
+  background-color: white;
+  border: 2px solid #e2dcd0;
+  border-radius: 12px;
+  color: #7d7568;
+  font-size: 1rem;
+  line-height: 1.1;
+}
+
+.share-tab small {
+  font-size: 0.5rem;
+  font-weight: 700;
+}
+
+/* 低い画面（スマホの横）ではクリア画面がはみ出さないよう、カードの中をスクロールできるようにする */
+.clear-card, .share-card {
+  max-height: calc(100% - 24px);
+  overflow-y: auto;
+}
+
+.clear-card .clear-message {
+  margin-bottom: 12px;
+}
+
+.score-box {
+  margin: 0 0 18px;
+  padding: 10px 12px;
+  background: #fff8e6;
+  border: 2px solid #ffe2a0;
+  border-radius: 16px;
+  color: #7d5700;
+}
+
+.score-box p {
+  margin: 2px 0;
+  line-height: 1.4;
+}
+
+.score-main {
+  font-size: 1.35rem;
+  font-weight: 700;
+}
+
+.score-detail, .score-best {
+  font-size: 0.85rem;
+}
+
+.score-challenge {
+  margin-top: 6px !important;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #e63946;
+}
+
+.clear-sub-actions {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.sub-action-btn {
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 2px solid #e2dcd0;
+  background: white;
+  color: #7d7568;
+  font-size: 0.8rem;
+}
+
+.sub-action-btn.share {
+  border-color: #4ea8de;
+  color: #2b7fb8;
+}
+
+/* スタート画面：ちょうせんじょう・さくひんの案内 */
+.start-invite {
+  margin: -14px 0 22px;
+  padding: 10px 12px;
+  background: #fff3f2;
+  border: 2px dashed #ff9f94;
+  border-radius: 14px;
+  color: #c0392b;
+  font-size: 0.9rem;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+/* シェアのしかた */
+#share-modal {
+  z-index: 120;
+}
+
+.share-card {
+  text-align: center;
+  padding: 24px 20px;
+  background: white;
+  border-radius: 24px;
+  border: 4px solid #e2dcd0;
+  max-width: 92%;
+  width: 360px;
+}
+
+.share-card h2 {
+  font-size: 1.2rem;
+  color: #2b7fb8;
+  margin-bottom: 10px;
+}
+
+.share-text {
+  font-size: 0.8rem;
+  color: #7d7568;
+  line-height: 1.5;
+  margin-bottom: 14px;
+  word-break: break-all;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.share-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.share-btn {
+  padding: 12px;
+  border-radius: 14px;
+  color: white;
+  font-size: 0.95rem;
+}
+
+.share-btn.x { background: #222; }
+.share-btn.line { background: #06c755; }
+.share-btn.copy { background: #4ea8de; }
+
+.share-status {
+  min-height: 1.2em;
+  margin: 10px 0 4px;
+  font-size: 0.8rem;
+  color: #2b7fb8;
+}
+
+.share-close {
+  margin: 4px auto 0;
+  padding: 8px 18px;
+  border-radius: 999px;
+  border: 2px solid #e2dcd0;
+  background: white;
+  color: #7d7568;
+  font-size: 0.85rem;
+}
+
+@media (max-height: 550px) {
+  .share-tab {
+    width: 38px;
+    padding: 2px;
+    font-size: 0.8rem;
+  }
+  .share-tab small {
+    display: none;
+  }
+  .clear-card {
+    padding: 16px 20px;
+  }
+  .clear-card h2 {
+    font-size: 1.4rem;
+    margin-bottom: 6px;
+  }
+}
